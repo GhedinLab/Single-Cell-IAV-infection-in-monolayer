@@ -1,0 +1,1027 @@
+---
+title: "10X-scData_4-Initial-data-visualization-cell-cycle-assignment"
+author: "Chang Wang"
+date: "7/26/2018"
+output: 
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Initial data visualization, identification of confounding factors, and cell cycle assignment ######
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(reshape)
+
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+
+```
+
+
+
+###### A549 cells ######
+#### Merge data ####
+```{r warning=FALSE, message=FALSE}
+# load RData
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S1_A549-Mock.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S2_A549-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S3_A549-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S4_A549-24h.RData")
+
+# Only use host genes
+s1.data <- s1
+s2.data <- s2[1:(nrow(s2)-8), ]
+s3.data <- s3[1:(nrow(s3)-8), ]
+s4.data <- s4[1:(nrow(s4)-8), ]
+
+# change the column names
+colnames(s1.data) <- paste("A549_Mock_", colnames(s1.data), sep = "")
+colnames(s2.data) <- paste("A549_6h_", colnames(s2.data), sep = "")
+colnames(s3.data) <- paste("A549_12h_", colnames(s3.data), sep = "")
+colnames(s4.data) <- paste("A549_24h_", colnames(s4.data), sep = "")
+
+# pool all cell from different conditions
+s1.data <- cbind("GeneID"=rownames(s1.data), s1.data)
+s2.data <- cbind("GeneID"=rownames(s2.data), s2.data)
+s3.data <- cbind("GeneID"=rownames(s3.data), s3.data)
+s4.data <- cbind("GeneID"=rownames(s4.data), s4.data)
+
+A549.data_s12 <- merge(s1.data, s2.data, all=TRUE, by="GeneID")
+A549.data_s34 <- merge(s3.data, s4.data, all=TRUE, by="GeneID")
+A549.data <- merge(A549.data_s12, A549.data_s34, all=TRUE, by="GeneID")
+rownames(A549.data) <- A549.data$GeneID
+A549.data$GeneID <- NULL
+A549.data[is.na(A549.data)] <- 0
+dim(A549.data)
+
+```
+
+
+
+#### Check the effect of cell cycle using Seurat ####
+```{r warning=FALSE, message=FALSE}
+# Read in a list of cell cycle markers, from Tirosh et al, 2015
+cc.genes <- readLines(con="~/Downloads/cell_cycle_vignette_files/regev_lab_cell_cycle_genes.txt")
+# Segregate this list into markers of G2/M phase and markers of S phase
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:98]
+
+
+## Create Seurat object ##
+A549 <- CreateSeuratObject(raw.data=A549.data, project="A549_IAV")
+metadata <- A549@meta.data
+metadata$orig.ident <- c(rep("A549_Mock", ncol(s1)), rep("A549_6h", ncol(s2)),
+                         rep("A549_12h", ncol(s3)), rep("A549_24h", ncol(s4)))
+A549@meta.data <- metadata
+A549 <- NormalizeData(A549, normalization.method='LogNormalize', scale.factor=100000)
+# Change the scale factor (e.g. 100,000) for library size based the actual data
+
+
+## Identify highly variable genes ##
+A549 <- FindVariableGenes(A549, mean.function=ExpMean, dispersion.function=LogVMR, 
+                          do.plot=TRUE, set.var.genes=TRUE,
+                          x.low.cutoff=0.1, x.high.cutoff=4, 
+                          y.cutoff=1, y.high.cutoff=Inf, 
+                          num.bin=20, do.recalc=TRUE, sort.results=TRUE, do.cpp = TRUE, 
+                          display.progress = TRUE)
+length(x=A549@var.genes) 
+
+
+## Scale Data ##
+A549 <- ScaleData(object=A549)
+
+
+## Run PCA with HVGs
+A549 <- RunPCA(object=A549, pc.genes=A549@var.genes, pcs.print=1:10, genes.print=10)
+# visualize PCs that are suspected to be associated with cell cycles
+# PC1 
+PCHeatmap(object=A549, pc.use=1, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC2 
+PCHeatmap(object=A549, pc.use=2, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC3 
+PCHeatmap(object=A549, pc.use=3, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC4 
+PCHeatmap(object=A549, pc.use=4, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC5 
+PCHeatmap(object=A549, pc.use=5, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC6 
+PCHeatmap(object=A549, pc.use=6, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC7 
+PCHeatmap(object=A549, pc.use=7, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC8 
+PCHeatmap(object=A549, pc.use=8, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC9 
+PCHeatmap(object=A549, pc.use=9, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC10 
+PCHeatmap(object=A549, pc.use=10, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+
+# Initial PCA plot
+PCAPlot(A549, group.by="orig.ident")
+
+```
+
+
+
+#### Assign cell-cycle scores ####
+```{r warning=FALSE, message=FALSE}
+# Please notice that there is randomness in this function (for more details, please check the source code of this function on Seurat Github).
+# Thus, we set random seed here.
+set.seed(123456)
+A549 <- CellCycleScoring(object=A549, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=TRUE)
+
+# view cell cycle scores and phase assignments
+head(x=A549@meta.data)
+
+## Inspect the stats of cell cycle assignment
+nrow(A549@meta.data[A549@meta.data$Phase == "G1", ]) 
+nrow(A549@meta.data[A549@meta.data$Phase == "G2M", ]) 
+nrow(A549@meta.data[A549@meta.data$Phase == "S", ]) 
+# A549Mock
+Mock_G1 <- nrow(A549@meta.data[A549@meta.data$Phase == "G1" & 
+                                 A549@meta.data$orig.ident == "A549_Mock", ]) 
+Mock_G2M <- nrow(A549@meta.data[A549@meta.data$Phase == "G2M" & 
+                                  A549@meta.data$orig.ident == "A549_Mock", ]) 
+Mock_S <- nrow(A549@meta.data[A549@meta.data$Phase == "S" & 
+                                A549@meta.data$orig.ident == "A549_Mock", ]) 
+# PR8 6h
+PR8_6h_G1 <- nrow(A549@meta.data[A549@meta.data$Phase == "G1" & 
+                                   A549@meta.data$orig.ident == "A549_6h", ]) 
+PR8_6h_G2M <- nrow(A549@meta.data[A549@meta.data$Phase == "G2M" & 
+                                    A549@meta.data$orig.ident == "A549_6h", ]) 
+PR8_6h_S <- nrow(A549@meta.data[A549@meta.data$Phase == "S" & 
+                                  A549@meta.data$orig.ident == "A549_6h", ]) 
+# PR8 12h
+PR8_12h_G1 <- nrow(A549@meta.data[A549@meta.data$Phase == "G1" & 
+                                    A549@meta.data$orig.ident == "A549_12h", ]) 
+PR8_12h_G2M <- nrow(A549@meta.data[A549@meta.data$Phase == "G2M" & 
+                                     A549@meta.data$orig.ident == "A549_12h", ]) 
+PR8_12h_S <- nrow(A549@meta.data[A549@meta.data$Phase == "S" & 
+                                   A549@meta.data$orig.ident == "A549_12h", ]) 
+# PR8 24h
+PR8_24h_G1 <- nrow(A549@meta.data[A549@meta.data$Phase == "G1" & 
+                                    A549@meta.data$orig.ident == "A549_24h", ]) 
+PR8_24h_G2M <- nrow(A549@meta.data[A549@meta.data$Phase == "G2M" & 
+                                     A549@meta.data$orig.ident == "A549_24h", ]) 
+PR8_24h_S <- nrow(A549@meta.data[A549@meta.data$Phase == "S" & 
+                                   A549@meta.data$orig.ident == "A549_24h", ]) 
+# Plot the distribution in different cell cycle phases
+ccp <- data.frame("G1"=c(Mock_G1, PR8_6h_G1, PR8_12h_G1, PR8_24h_G1),
+                  "G2M"=c(Mock_G2M, PR8_6h_G2M, PR8_12h_G2M, PR8_24h_G2M),
+                  "S"=c(Mock_S, PR8_6h_S, PR8_12h_S, PR8_24h_S))
+rownames(ccp) <- c("Mock", "6hpi", "12hpi", "24hpi")
+ccpp <- as.data.frame(prop.table(as.matrix(ccp), margin=1)*100)
+ccpp$phase <- rownames(ccpp)
+ccpp_melt <- melt(ccpp, id.vars="phase")
+ccpp_melt$variable <- factor(ccpp_melt$variable, levels=c("G1", "S", "G2M"))
+colnames(ccpp_melt) <- c("Samples", "Phase", "Percentage")
+ccpp_melt$Samples <- factor(ccpp$phase, levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+ccpp_melt$Percentage <- as.numeric(ccpp_melt$Percentage)
+g <- ggplot()
+g + geom_bar(data=ccpp_melt, aes(x=Samples, y=Percentage, fill=Phase), stat="identity") +
+  theme(legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal",
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        axis.title=element_text(size=15),
+        axis.text=element_text(size=15)) +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+# Test if the distribution of cell cycle phase is different between samples
+ccpp_count <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                             c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                             c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M),
+                             c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count) <- list(condition=c("Mock", "PR8_6h", "PR8_12h", "PR8_24h"),
+                             phase=c("G1", "S", "G2M"))
+Xsq <- chisq.test(ccpp_count)
+Xsq 
+
+# Test between mock and 6hpi
+ccpp_count_mockvs6h <- ccpp_count <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                                    c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M)))
+dimnames(ccpp_count_mockvs6h) <- list(condition=c("Mock", "PR8_6h"),
+                                      phase=c("G1", "S", "G2M"))
+Xsq_mockvs6h <- chisq.test(ccpp_count_mockvs6h)
+Xsq_mockvs6h
+
+# Test between mock and 12hpi
+ccpp_count_mockvs12h <- ccpp_count <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                                     c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M)))
+dimnames(ccpp_count_mockvs12h) <- list(condition=c("Mock", "PR8_12h"),
+                                       phase=c("G1", "S", "G2M"))
+Xsq_mockvs12h <- chisq.test(ccpp_count_mockvs12h)
+Xsq_mockvs12h 
+
+# Test between mock and 24hpi
+ccpp_count_mockvs24h <- ccpp_count <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                                     c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_mockvs24h) <- list(condition=c("Mock", "PR8_24h"),
+                                       phase=c("G1", "S", "G2M"))
+Xsq_mockvs24h <- chisq.test(ccpp_count_mockvs24h)
+Xsq_mockvs24h 
+
+# Test between 6hpi and 12hpi
+ccpp_count_6hvs12h <- as.table(rbind(c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                                     c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M)))
+dimnames(ccpp_count_6hvs12h) <- list(condition=c("PR8_6h", "PR8_12h"),
+                                     phase=c("G1", "S", "G2M"))
+Xsq_6hvs12h <- chisq.test(ccpp_count_6hvs12h)
+Xsq_6hvs12h 
+
+# Test between 6hpi and 24hpi
+ccpp_count_6hvs24h <- as.table(rbind(c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                                     c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_6hvs24h) <- list(condition=c("PR8_6h", "PR8_24h"),
+                                     phase=c("G1", "S", "G2M"))
+Xsq_6hvs24h <- chisq.test(ccpp_count_6hvs24h)
+Xsq_6hvs24h 
+
+# Test between 12hpi and 24hpi
+ccpp_count_12hvs24h <- as.table(rbind(c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M),
+                                      c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_12hvs24h) <- list(condition=c("PR8_12h", "PR8_24h"),
+                                      phase=c("G1", "S", "G2M"))
+Xsq_12hvs24h <- chisq.test(ccpp_count_12hvs24h)
+Xsq_12hvs24h
+
+
+# Visualize the distribution of cell cycle markers across
+JoyPlot(object=A549, features.plot=c("CENPF", "CKS2", "PCNA", "MCM4"), nCol=2)
+
+# Running a PCA on cell cycle genes reveals, unsurprisingly, that cells
+# separate entirely by phase
+A549 <- RunPCA(object=A549, pc.genes=c(s.genes, g2m.genes), do.print=FALSE)
+PCAPlot(object=A549)
+
+```
+
+
+
+#### Check the cell cycle phase distribution in different groups of cells in each sample ####
+```{r warning=FALSE, message=FALSE}
+ccphase <- as.data.frame(A549@ident)
+colnames(ccphase) <- "phase"
+ccphase$phase <- factor(ccphase$phase, levels=c("G1", "S", "G2M"))
+ccphase$cellID <- rownames(ccphase)
+ccphase_s1 <- ccphase[1:ncol(s1), ]
+ccphase_s2 <- ccphase[(ncol(s1)+1) : (ncol(s1)+ncol(s2)), ]
+ccphase_s3 <- ccphase[(ncol(s1)+ncol(s2)+1) : (ncol(s1)+ncol(s2)+ncol(s3)), ]
+ccphase_s4 <- ccphase[(ncol(s1)+ncol(s2)+ncol(s3)+1) : (ncol(A549.data)), ]
+
+ccphase_s1$cellID <- gsub("A549_Mock_", "", ccphase_s1$cellID)
+ccphase_s2$cellID <- gsub("A549_6h_", "", ccphase_s2$cellID)
+ccphase_s3$cellID <- gsub("A549_12h_", "", ccphase_s3$cellID)
+ccphase_s4$cellID <- gsub("A549_24h_", "", ccphase_s4$cellID)
+
+
+## Groups: cells with more/less viral reads
+## Sample2 
+s2_vsum <- data.frame(colSums(s2[(nrow(s2)-7):nrow(s2), ]))
+s2_vsum$cellID <- rownames(s2_vsum)
+colnames(s2_vsum)[1] <- "vsum"
+s2_csum <- data.frame(colSums(s2))
+s2_csum$cellID <- rownames(s2_csum)
+colnames(s2_csum)[1] <- "csum"
+s2_vp <- merge(s2_vsum, s2_csum, by="cellID")
+rm(s2_vsum, s2_csum)
+s2_vp$vp <- s2_vp$vsum*100/s2_vp$csum
+
+ccphase_vp_s2 <- merge(ccphase_s2, s2_vp, by="cellID")
+ccphase_vp_s2 <- ccphase_vp_s2[order(ccphase_vp_s2$vp, decreasing=TRUE), ]
+ccphase_vp_s2_G1 <- ccphase_vp_s2[ccphase_vp_s2$phase == "G1", ]
+ccphase_vp_s2_S <- ccphase_vp_s2[ccphase_vp_s2$phase == "S", ]
+ccphase_vp_s2_G2M <- ccphase_vp_s2[ccphase_vp_s2$phase == "G2M", ]
+ccphase_vp_s2_G1$psuedoID <- seq(1, nrow(ccphase_vp_s2_G1), 1)
+ccphase_vp_s2_S$psuedoID <- seq(1, nrow(ccphase_vp_s2_S), 1)
+ccphase_vp_s2_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s2_G2M), 1)
+ccphase_vp_s2 <- rbind(ccphase_vp_s2_G1, ccphase_vp_s2_S, ccphase_vp_s2_G2M)
+
+ggplot(data=ccphase_vp_s2, aes(x=psuedoID, y=vp, color=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s2, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 40, 5))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s2) 
+ccphase_vp_s2_G1vsS <- ccphase_vp_s2[ccphase_vp_s2$phase == "G1" | 
+                                       ccphase_vp_s2$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s2_G1vsS) 
+ccphase_vp_s2_G1vsG2M <- ccphase_vp_s2[ccphase_vp_s2$phase == "G1" | 
+                                         ccphase_vp_s2$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s2_G1vsG2M) 
+ccphase_vp_s2_SvsG2M <- ccphase_vp_s2[ccphase_vp_s2$phase == "S" | 
+                                        ccphase_vp_s2$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s2_SvsG2M) 
+
+
+## Sample3
+s3_vsum <- data.frame(colSums(s3[(nrow(s3)-7):nrow(s3), ]))
+s3_vsum$cellID <- rownames(s3_vsum)
+colnames(s3_vsum)[1] <- "vsum"
+s3_csum <- data.frame(colSums(s3))
+s3_csum$cellID <- rownames(s3_csum)
+colnames(s3_csum)[1] <- "csum"
+s3_vp <- merge(s3_vsum, s3_csum, by="cellID")
+rm(s3_vsum, s3_csum)
+s3_vp$vp <- s3_vp$vsum*100/s3_vp$csum
+
+ccphase_vp_s3 <- merge(ccphase_s3, s3_vp, by="cellID")
+ccphase_vp_s3 <- ccphase_vp_s3[order(ccphase_vp_s3$vp, decreasing=TRUE), ]
+ccphase_vp_s3_G1 <- ccphase_vp_s3[ccphase_vp_s3$phase == "G1", ]
+ccphase_vp_s3_S <- ccphase_vp_s3[ccphase_vp_s3$phase == "S", ]
+ccphase_vp_s3_G2M <- ccphase_vp_s3[ccphase_vp_s3$phase == "G2M", ]
+ccphase_vp_s3_G1$psuedoID <- seq(1, nrow(ccphase_vp_s3_G1), 1)
+ccphase_vp_s3_S$psuedoID <- seq(1, nrow(ccphase_vp_s3_S), 1)
+ccphase_vp_s3_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s3_G2M), 1)
+ccphase_vp_s3 <- rbind(ccphase_vp_s3_G1, ccphase_vp_s3_S, ccphase_vp_s3_G2M)
+
+ggplot(data=ccphase_vp_s3, aes(x=psuedoID, y=vp, colour=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s3, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 60, 10))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s3) 
+ccphase_vp_s3_G1vsS <- ccphase_vp_s3[ccphase_vp_s3$phase == "G1" | 
+                                       ccphase_vp_s3$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s3_G1vsS)
+ccphase_vp_s3_G1vsG2M <- ccphase_vp_s3[ccphase_vp_s3$phase == "G1" | 
+                                         ccphase_vp_s3$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s3_G1vsG2M) 
+ccphase_vp_s3_SvsG2M <- ccphase_vp_s3[ccphase_vp_s3$phase == "S" | 
+                                        ccphase_vp_s3$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s3_SvsG2M) 
+
+
+## Sample4
+s4_vsum <- data.frame(colSums(s4[(nrow(s4)-7):nrow(s4), ]))
+s4_vsum$cellID <- rownames(s4_vsum)
+colnames(s4_vsum)[1] <- "vsum"
+s4_csum <- data.frame(colSums(s4))
+s4_csum$cellID <- rownames(s4_csum)
+colnames(s4_csum)[1] <- "csum"
+s4_vp <- merge(s4_vsum, s4_csum, by="cellID")
+rm(s4_vsum, s4_csum)
+s4_vp$vp <- s4_vp$vsum*100/s4_vp$csum
+
+ccphase_vp_s4 <- merge(ccphase_s4, s4_vp, by="cellID")
+ccphase_vp_s4 <- ccphase_vp_s4[order(ccphase_vp_s4$vp, decreasing=TRUE), ]
+ccphase_vp_s4_G1 <- ccphase_vp_s4[ccphase_vp_s4$phase == "G1", ]
+ccphase_vp_s4_S <- ccphase_vp_s4[ccphase_vp_s4$phase == "S", ]
+ccphase_vp_s4_G2M <- ccphase_vp_s4[ccphase_vp_s4$phase == "G2M", ]
+ccphase_vp_s4_G1$psuedoID <- seq(1, nrow(ccphase_vp_s4_G1), 1)
+ccphase_vp_s4_S$psuedoID <- seq(1, nrow(ccphase_vp_s4_S), 1)
+ccphase_vp_s4_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s4_G2M), 1)
+ccphase_vp_s4 <- rbind(ccphase_vp_s4_G1, ccphase_vp_s4_S, ccphase_vp_s4_G2M)
+
+ggplot(data=ccphase_vp_s4, aes(x=psuedoID, y=vp, colour=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s4, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 70, 10))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s4) 
+ccphase_vp_s4_G1vsS <- ccphase_vp_s4[ccphase_vp_s4$phase == "G1" | 
+                                       ccphase_vp_s4$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s4_G1vsS) 
+ccphase_vp_s4_G1vsG2M <- ccphase_vp_s4[ccphase_vp_s4$phase == "G1" | 
+                                         ccphase_vp_s4$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s4_G1vsG2M)
+ccphase_vp_s4_SvsG2M <- ccphase_vp_s4[ccphase_vp_s4$phase == "S" | 
+                                        ccphase_vp_s4$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s4_SvsG2M)
+
+
+## Compare each cell cycle phase between different samples ##
+ccphase_vp_s2_G1$sample <- rep("S2", nrow(ccphase_vp_s2_G1))
+ccphase_vp_s3_G1$sample <- rep("S3", nrow(ccphase_vp_s3_G1))
+ccphase_vp_s4_G1$sample <- rep("S4", nrow(ccphase_vp_s4_G1))
+ccphase_vp_s2vs3_G1 <- rbind(ccphase_vp_s2_G1, ccphase_vp_s3_G1)
+ccphase_vp_s2vs4_G1 <- rbind(ccphase_vp_s2_G1, ccphase_vp_s4_G1)
+ccphase_vp_s3vs4_G1 <- rbind(ccphase_vp_s3_G1, ccphase_vp_s4_G1)
+wilcox.test(vp ~ sample, ccphase_vp_s2vs3_G1) 
+wilcox.test(vp ~ sample, ccphase_vp_s2vs4_G1) 
+wilcox.test(vp ~ sample, ccphase_vp_s3vs4_G1) 
+
+ccphase_vp_s2_S$sample <- rep("S2", nrow(ccphase_vp_s2_S))
+ccphase_vp_s3_S$sample <- rep("S3", nrow(ccphase_vp_s3_S))
+ccphase_vp_s4_S$sample <- rep("S4", nrow(ccphase_vp_s4_S))
+ccphase_vp_s2vs3_S <- rbind(ccphase_vp_s2_S, ccphase_vp_s3_S)
+ccphase_vp_s2vs4_S <- rbind(ccphase_vp_s2_S, ccphase_vp_s4_S)
+ccphase_vp_s3vs4_S <- rbind(ccphase_vp_s3_S, ccphase_vp_s4_S)
+wilcox.test(vp ~ sample, ccphase_vp_s2vs3_S) 
+wilcox.test(vp ~ sample, ccphase_vp_s2vs4_S) 
+wilcox.test(vp ~ sample, ccphase_vp_s3vs4_S) 
+
+ccphase_vp_s2_G2M$sample <- rep("S2", nrow(ccphase_vp_s2_G2M))
+ccphase_vp_s3_G2M$sample <- rep("S3", nrow(ccphase_vp_s3_G2M))
+ccphase_vp_s4_G2M$sample <- rep("S4", nrow(ccphase_vp_s4_G2M))
+ccphase_vp_s2vs3_G2M <- rbind(ccphase_vp_s2_G2M, ccphase_vp_s3_G2M)
+ccphase_vp_s2vs4_G2M <- rbind(ccphase_vp_s2_G2M, ccphase_vp_s4_G2M)
+ccphase_vp_s3vs4_G2M <- rbind(ccphase_vp_s3_G2M, ccphase_vp_s4_G2M)
+wilcox.test(vp ~ sample, ccphase_vp_s2vs3_G2M) 
+wilcox.test(vp ~ sample, ccphase_vp_s2vs4_G2M) 
+wilcox.test(vp ~ sample, ccphase_vp_s3vs4_G2M) 
+
+```
+
+
+
+#### Restore ident and save A549 Seurat object ####
+```{r warning=FALSE, message=FALSE}
+cc_ident <- as.data.frame(A549@ident)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Initially, A549@ident is a factor with 3 levels (G1, S, G2M)
+write.csv(cc_ident, file="Cell-cycle-identity_A549.csv")
+
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S1_A549-Mock.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S2_A549-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S3_A549-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S4_A549-24h.RData")
+
+cc_ident_initial <- cbind(cc_ident, 
+                          data.frame(c(rep("Mock", ncol(s1)), rep("6h", ncol(s2)), 
+                                       rep("12h", ncol(s3)), rep("24h", ncol(s4)))))
+cc_ident_initial$`A549@ident` <- NULL
+colnames(cc_ident_initial) <- "ident"
+ident <- factor(cc_ident_initial$ident, levels=c("Mock", "6h", "12h", "24h"))
+attributes(ident)$names <- rownames(cc_ident_initial)
+A549_withcc <- A549
+A549_withcc@ident <- ident
+
+save(A549_withcc, 
+     file="A549_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+
+```
+
+
+
+###### HBEpC cells ######
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+
+```
+
+#### Merge data ####
+```{r warning=FALSE, message=FALSE}
+# load RData
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s5_HBEpC-Mock.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s6_HBEpC-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s7_HBEpC-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s8_HBEpC-24h.RData")
+
+# Only use host genes
+s5.data <- s5 
+s6.data <- s6[1:(nrow(s6)-8), ]
+s7.data <- s7[1:(nrow(s7)-8), ]
+s8.data <- s8[1:(nrow(s8)-8), ]
+
+# change the column names
+colnames(s5.data) <- paste("HBEpC_Mock_", colnames(s5.data), sep = "")
+colnames(s6.data) <- paste("HBEpC_6h_", colnames(s6.data), sep = "")
+colnames(s7.data) <- paste("HBEpC_12h_", colnames(s7.data), sep = "")
+colnames(s8.data) <- paste("HBEpC_24h_", colnames(s8.data), sep = "")
+
+# pool all cell from different conditions
+s5.data <- cbind("GeneID"=rownames(s5.data), s5.data)
+s6.data <- cbind("GeneID"=rownames(s6.data), s6.data)
+s7.data <- cbind("GeneID"=rownames(s7.data), s7.data)
+s8.data <- cbind("GeneID"=rownames(s8.data), s8.data)
+
+HBEpC.data_s56 <- merge(s5.data, s6.data, all=TRUE, by="GeneID")
+HBEpC.data_s78 <- merge(s7.data, s8.data, all=TRUE, by="GeneID")
+HBEpC.data <- merge(HBEpC.data_s56, HBEpC.data_s78, all=TRUE, by="GeneID")
+rownames(HBEpC.data) <- HBEpC.data$GeneID
+HBEpC.data$GeneID <- NULL
+HBEpC.data[is.na(HBEpC.data)] <- 0
+dim(HBEpC.data)
+
+```
+
+
+
+#### Check the effect of cell cycle using Seurat ####
+```{r warning=FALSE, message=FALSE}
+# Read in a list of cell cycle markers, from Tirosh et al, 2015
+cc.genes <- readLines(con="~/Downloads/cell_cycle_vignette_files/regev_lab_cell_cycle_genes.txt")
+# Segregate this list into markers of G2/M phase and markers of S phase
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:98]
+
+
+## Create Seurat object ##
+HBEpC <- CreateSeuratObject(raw.data=HBEpC.data, project="HBEpC_IAV")
+metadata <- HBEpC@meta.data
+metadata$orig.ident <- c(rep("HBEpC_Mock", ncol(s5)), rep("HBEpC_6h", ncol(s6)),
+                         rep("HBEpC_12h", ncol(s7)), rep("HBEpC_24h", ncol(s8)))
+HBEpC@meta.data <- metadata
+HBEpC <- NormalizeData(HBEpC, normalization.method='LogNormalize', scale.factor=100000)
+# Change the scale factor (e.g. 100,000) for library size based the actual data
+
+
+## Identify highly variable genes ##
+HBEpC <- FindVariableGenes(HBEpC, mean.function=ExpMean, dispersion.function=LogVMR, 
+                           do.plot=TRUE, set.var.genes=TRUE,
+                           x.low.cutoff=0.1, x.high.cutoff=4, 
+                           y.cutoff=1, y.high.cutoff=Inf, 
+                           num.bin=20, do.recalc=TRUE, sort.results=TRUE, do.cpp = TRUE, 
+                           display.progress = TRUE)
+length(x=HBEpC@var.genes) 
+
+
+## Scale Data ##
+HBEpC <- ScaleData(object=HBEpC)
+
+
+## Run PCA with HVGs
+HBEpC <- RunPCA(object=HBEpC, pc.genes=HBEpC@var.genes, pcs.print=1:10, genes.print=10)
+# visualize PCs 
+# PC1 
+PCHeatmap(object=HBEpC, pc.use=1, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC2 
+PCHeatmap(object=HBEpC, pc.use=2, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC3
+PCHeatmap(object=HBEpC, pc.use=3, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC4 
+PCHeatmap(object=HBEpC, pc.use=4, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC5
+PCHeatmap(object=HBEpC, pc.use=5, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC6
+PCHeatmap(object=HBEpC, pc.use=6, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC7 
+PCHeatmap(object=HBEpC, pc.use=7, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC8
+PCHeatmap(object=HBEpC, pc.use=8, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC9 
+PCHeatmap(object=HBEpC, pc.use=9, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+# PC10 
+PCHeatmap(object=HBEpC, pc.use=10, do.balanced=TRUE, label.columns=FALSE, remove.key=TRUE)
+
+# Initial PCA plot
+PCAPlot(HBEpC, group.by="orig.ident")
+
+```
+
+
+
+#### Assign cell-cycle scores ####
+```{r warning=FALSE, message=FALSE}
+set.seed(123456)
+HBEpC <- CellCycleScoring(object=HBEpC, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=TRUE)
+
+# view cell cycle scores and phase assignments
+head(x=HBEpC@meta.data)
+
+## Inspect the stats of cell cycle assignment
+nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G1", ]) 
+nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G2M", ]) 
+nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "S", ]) 
+# HBEpC Mock
+Mock_G1 <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G1" & 
+                                  HBEpC@meta.data$orig.ident == "HBEpC_Mock", ]) 
+Mock_G2M <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G2M" & 
+                                   HBEpC@meta.data$orig.ident == "HBEpC_Mock", ]) 
+Mock_S <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "S" & 
+                                 HBEpC@meta.data$orig.ident == "HBEpC_Mock", ]) 
+# PR8 6h
+PR8_6h_G1 <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G1" & 
+                                    HBEpC@meta.data$orig.ident == "HBEpC_6h", ]) 
+PR8_6h_G2M <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G2M" & 
+                                     HBEpC@meta.data$orig.ident == "HBEpC_6h", ]) 
+PR8_6h_S <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "S" & 
+                                   HBEpC@meta.data$orig.ident == "HBEpC_6h", ]) 
+# PR8 12h
+PR8_12h_G1 <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G1" & 
+                                     HBEpC@meta.data$orig.ident == "HBEpC_12h", ]) 
+PR8_12h_G2M <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G2M" & 
+                                      HBEpC@meta.data$orig.ident == "HBEpC_12h", ]) 
+PR8_12h_S <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "S" & 
+                                    HBEpC@meta.data$orig.ident == "HBEpC_12h", ]) 
+# PR8 24h
+PR8_24h_G1 <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G1" & 
+                                     HBEpC@meta.data$orig.ident == "HBEpC_24h", ]) 
+PR8_24h_G2M <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "G2M" & 
+                                      HBEpC@meta.data$orig.ident == "HBEpC_24h", ]) 
+PR8_24h_S <- nrow(HBEpC@meta.data[HBEpC@meta.data$Phase == "S" & 
+                                    HBEpC@meta.data$orig.ident == "HBEpC_24h", ]) 
+# Plot the distribution in different cell cycle phases
+ccp <- data.frame("G1"=c(Mock_G1, PR8_6h_G1, PR8_12h_G1, PR8_24h_G1),
+                  "G2M"=c(Mock_G2M, PR8_6h_G2M, PR8_12h_G2M, PR8_24h_G2M),
+                  "S"=c(Mock_S, PR8_6h_S, PR8_12h_S, PR8_24h_S))
+rownames(ccp) <- c("Mock", "6hpi", "12hpi", "24hpi")
+ccpp <- as.data.frame(prop.table(as.matrix(ccp), margin=1)*100)
+ccpp$phase <- rownames(ccpp)
+ccpp_melt <- melt(ccpp, id.vars="phase")
+ccpp_melt$variable <- factor(ccpp_melt$variable, levels=c("G1", "S", "G2M"))
+colnames(ccpp_melt) <- c("Samples", "Phase", "Percentage")
+ccpp_melt$Samples <- factor(ccpp$phase, levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+ccpp_melt$Percentage <- as.numeric(ccpp_melt$Percentage)
+g <- ggplot()
+g + geom_bar(data=ccpp_melt, aes(x=Samples, y=Percentage, fill=Phase), stat="identity") +
+  theme(legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal",
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        axis.title=element_text(size=15),
+        axis.text=element_text(size=15)) +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+# Test if the distribution of cell cycle phase is different between samples
+ccpp_count <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                             c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                             c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M),
+                             c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count) <- list(condition=c("Mock", "PR8_6h", "PR8_12h", "PR8_24h"),
+                             phase=c("G1", "S", "G2M"))
+Xsq <- chisq.test(ccpp_count)
+Xsq 
+
+# Test between mock and 6hpi
+ccpp_count_mockvs6h <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                      c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M)))
+dimnames(ccpp_count_mockvs6h) <- list(condition=c("Mock", "PR8_6h"),
+                                      phase=c("G1", "S", "G2M"))
+Xsq_mockvs6h <- chisq.test(ccpp_count_mockvs6h)
+Xsq_mockvs6h 
+
+# Test between mock and 12hpi
+ccpp_count_mockvs12h <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                       c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M)))
+dimnames(ccpp_count_mockvs12h) <- list(condition=c("Mock", "PR8_12h"),
+                                       phase=c("G1", "S", "G2M"))
+Xsq_mockvs12h <- chisq.test(ccpp_count_mockvs12h)
+Xsq_mockvs12h 
+
+# Test between mock and 24hpi
+ccpp_count_mockvs24h <- as.table(rbind(c(Mock_G1, Mock_S, Mock_G2M),
+                                       c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_mockvs24h) <- list(condition=c("Mock", "PR8_24h"),
+                                       phase=c("G1", "S", "G2M"))
+Xsq_mockvs24h <- chisq.test(ccpp_count_mockvs24h)
+Xsq_mockvs24h 
+
+
+# Test between 6hpi and 12hpi
+ccpp_count_6hvs12h <- as.table(rbind(c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                                     c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M)))
+dimnames(ccpp_count_6hvs12h) <- list(condition=c("PR8_6h", "PR8_12h"),
+                                     phase=c("G1", "S", "G2M"))
+Xsq_6hvs12h <- chisq.test(ccpp_count_6hvs12h)
+Xsq_6hvs12h 
+
+# Test between 6hpi and 24hpi
+ccpp_count_6hvs24h <- as.table(rbind(c(PR8_6h_G1, PR8_6h_S, PR8_6h_G2M),
+                                     c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_6hvs24h) <- list(condition=c("PR8_6h", "PR8_24h"),
+                                     phase=c("G1", "S", "G2M"))
+Xsq_6hvs24h <- chisq.test(ccpp_count_6hvs24h)
+Xsq_6hvs24h 
+
+# Test between 12hpi and 24hpi
+ccpp_count_12hvs24h <- as.table(rbind(c(PR8_12h_G1, PR8_12h_S, PR8_12h_G2M),
+                                      c(PR8_24h_G1, PR8_24h_S, PR8_24h_G2M)))
+dimnames(ccpp_count_12hvs24h) <- list(condition=c("PR8_12h", "PR8_24h"),
+                                      phase=c("G1", "S", "G2M"))
+Xsq_12hvs24h <- chisq.test(ccpp_count_12hvs24h)
+Xsq_12hvs24h 
+
+# Visualize the distribution of cell cycle markers across
+JoyPlot(object=HBEpC, features.plot=c("CENPF", "CKS2", "PCNA", "MCM4"), nCol=2)
+
+# Running a PCA on cell cycle genes reveals, unsurprisingly, that cells
+# separate entirely by phase
+HBEpC <- RunPCA(object=HBEpC, pc.genes=c(s.genes, g2m.genes), do.print=FALSE)
+PCAPlot(object=HBEpC)
+
+```
+
+
+
+#### Check the cell cycle phase distribution in different groups of cells in each sample ####
+```{r warning=FALSE, message=FALSE}
+ccphase <- as.data.frame(HBEpC@ident)
+colnames(ccphase) <- "phase"
+ccphase$phase <- factor(ccphase$phase, levels=c("G1", "S", "G2M"))
+ccphase$cellID <- rownames(ccphase)
+ccphase_s5 <- ccphase[1:ncol(s5), ]
+ccphase_s6 <- ccphase[(ncol(s5)+1) : (ncol(s5)+ncol(s6)), ]
+ccphase_s7 <- ccphase[(ncol(s5)+ncol(s6)+1) : (ncol(s5)+ncol(s6)+ncol(s7)), ]
+ccphase_s8 <- ccphase[(ncol(s5)+ncol(s6)+ncol(s7)+1) : (ncol(HBEpC.data)), ]
+
+ccphase_s5$cellID <- gsub("HBEpC_Mock_", "", ccphase_s5$cellID)
+ccphase_s6$cellID <- gsub("HBEpC_6h_", "", ccphase_s6$cellID)
+ccphase_s7$cellID <- gsub("HBEpC_12h_", "", ccphase_s7$cellID)
+ccphase_s8$cellID <- gsub("HBEpC_24h_", "", ccphase_s8$cellID)
+
+
+## Groups: cells with more/less viral reads
+## Sample6 
+s6_vsum <- data.frame(colSums(s6[(nrow(s6)-7):nrow(s6), ]))
+s6_vsum$cellID <- rownames(s6_vsum)
+colnames(s6_vsum)[1] <- "vsum"
+s6_csum <- data.frame(colSums(s6))
+s6_csum$cellID <- rownames(s6_csum)
+colnames(s6_csum)[1] <- "csum"
+s6_vp <- merge(s6_vsum, s6_csum, by="cellID")
+rm(s6_vsum, s6_csum)
+s6_vp$vp <- s6_vp$vsum*100/s6_vp$csum
+
+ccphase_vp_s6 <- merge(ccphase_s6, s6_vp, by="cellID")
+ccphase_vp_s6 <- ccphase_vp_s6[order(ccphase_vp_s6$vp, decreasing=TRUE), ]
+ccphase_vp_s6_G1 <- ccphase_vp_s6[ccphase_vp_s6$phase == "G1", ]
+ccphase_vp_s6_S <- ccphase_vp_s6[ccphase_vp_s6$phase == "S", ]
+ccphase_vp_s6_G2M <- ccphase_vp_s6[ccphase_vp_s6$phase == "G2M", ]
+ccphase_vp_s6_G1$psuedoID <- seq(1, nrow(ccphase_vp_s6_G1), 1)
+ccphase_vp_s6_S$psuedoID <- seq(1, nrow(ccphase_vp_s6_S), 1)
+ccphase_vp_s6_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s6_G2M), 1)
+ccphase_vp_s6 <- rbind(ccphase_vp_s6_G1, ccphase_vp_s6_S, ccphase_vp_s6_G2M)
+
+ggplot(data=ccphase_vp_s6, aes(x=psuedoID, y=vp, color=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s6, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 50, 10))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s6) 
+ccphase_vp_s6_G1vsS <- ccphase_vp_s6[ccphase_vp_s6$phase == "G1" | 
+                                       ccphase_vp_s6$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s6_G1vsS) 
+ccphase_vp_s6_G1vsG2M <- ccphase_vp_s6[ccphase_vp_s6$phase == "G1" | 
+                                         ccphase_vp_s6$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s6_G1vsG2M) 
+ccphase_vp_s6_SvsG2M <- ccphase_vp_s6[ccphase_vp_s6$phase == "S" | 
+                                        ccphase_vp_s6$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s6_SvsG2M) 
+
+
+## Sample7
+s7_vsum <- data.frame(colSums(s7[(nrow(s7)-7):nrow(s7), ]))
+s7_vsum$cellID <- rownames(s7_vsum)
+colnames(s7_vsum)[1] <- "vsum"
+s7_csum <- data.frame(colSums(s7))
+s7_csum$cellID <- rownames(s7_csum)
+colnames(s7_csum)[1] <- "csum"
+s7_vp <- merge(s7_vsum, s7_csum, by="cellID")
+rm(s7_vsum, s7_csum)
+s7_vp$vp <- s7_vp$vsum*100/s7_vp$csum
+
+ccphase_vp_s7 <- merge(ccphase_s7, s7_vp, by="cellID")
+ccphase_vp_s7 <- ccphase_vp_s7[order(ccphase_vp_s7$vp, decreasing=TRUE), ]
+ccphase_vp_s7_G1 <- ccphase_vp_s7[ccphase_vp_s7$phase == "G1", ]
+ccphase_vp_s7_S <- ccphase_vp_s7[ccphase_vp_s7$phase == "S", ]
+ccphase_vp_s7_G2M <- ccphase_vp_s7[ccphase_vp_s7$phase == "G2M", ]
+ccphase_vp_s7_G1$psuedoID <- seq(1, nrow(ccphase_vp_s7_G1), 1)
+ccphase_vp_s7_S$psuedoID <- seq(1, nrow(ccphase_vp_s7_S), 1)
+ccphase_vp_s7_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s7_G2M), 1)
+ccphase_vp_s7 <- rbind(ccphase_vp_s7_G1, ccphase_vp_s7_S, ccphase_vp_s7_G2M)
+
+ggplot(data=ccphase_vp_s7, aes(x=psuedoID, y=vp, colour=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s7, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 60, 10))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s7) 
+ccphase_vp_s7_G1vsS <- ccphase_vp_s7[ccphase_vp_s7$phase == "G1" | 
+                                       ccphase_vp_s7$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s7_G1vsS) 
+ccphase_vp_s7_G1vsG2M <- ccphase_vp_s7[ccphase_vp_s7$phase == "G1" | 
+                                         ccphase_vp_s7$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s7_G1vsG2M) 
+ccphase_vp_s7_SvsG2M <- ccphase_vp_s7[ccphase_vp_s7$phase == "S" | 
+                                        ccphase_vp_s7$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s7_SvsG2M) 
+
+
+## Sample8
+s8_vsum <- data.frame(colSums(s8[(nrow(s8)-7):nrow(s8), ]))
+s8_vsum$cellID <- rownames(s8_vsum)
+colnames(s8_vsum)[1] <- "vsum"
+s8_csum <- data.frame(colSums(s8))
+s8_csum$cellID <- rownames(s8_csum)
+colnames(s8_csum)[1] <- "csum"
+s8_vp <- merge(s8_vsum, s8_csum, by="cellID")
+rm(s8_vsum, s8_csum)
+s8_vp$vp <- s8_vp$vsum*100/s8_vp$csum
+
+ccphase_vp_s8 <- merge(ccphase_s8, s8_vp, by="cellID")
+ccphase_vp_s8 <- ccphase_vp_s8[order(ccphase_vp_s8$vp, decreasing=TRUE), ]
+ccphase_vp_s8_G1 <- ccphase_vp_s8[ccphase_vp_s8$phase == "G1", ]
+ccphase_vp_s8_S <- ccphase_vp_s8[ccphase_vp_s8$phase == "S", ]
+ccphase_vp_s8_G2M <- ccphase_vp_s8[ccphase_vp_s8$phase == "G2M", ]
+ccphase_vp_s8_G1$psuedoID <- seq(1, nrow(ccphase_vp_s8_G1), 1)
+ccphase_vp_s8_S$psuedoID <- seq(1, nrow(ccphase_vp_s8_S), 1)
+ccphase_vp_s8_G2M$psuedoID <- seq(1, nrow(ccphase_vp_s8_G2M), 1)
+ccphase_vp_s8 <- rbind(ccphase_vp_s8_G1, ccphase_vp_s8_S, ccphase_vp_s8_G2M)
+
+ggplot(data=ccphase_vp_s8, aes(x=psuedoID, y=vp, colour=phase)) +
+  geom_line(size=2) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cells", y="Viral read percentage")
+
+ggplot(data=ccphase_vp_s8, aes(x=phase, y=vp, color=phase)) +
+  geom_boxplot(width=0.6, show.legend=FALSE, lwd=1.5) +
+  scale_color_manual(values=c("slateblue", "gold", "skyblue")) +
+  theme(axis.title=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.title=element_blank(),
+        legend.text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal") +
+  labs(x="Cell cycle states", y="Viral read percentage") +
+  scale_y_continuous(breaks=seq(0, 70, 10))
+
+# Test the difference between cell cycle states
+kruskal.test(vp ~ phase, ccphase_vp_s8) 
+ccphase_vp_s8_G1vsS <- ccphase_vp_s8[ccphase_vp_s8$phase == "G1" | 
+                                       ccphase_vp_s8$phase == "S", ]
+wilcox.test(vp ~ phase, ccphase_vp_s8_G1vsS) 
+ccphase_vp_s8_G1vsG2M <- ccphase_vp_s8[ccphase_vp_s8$phase == "G1" | 
+                                         ccphase_vp_s8$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s8_G1vsG2M) 
+ccphase_vp_s8_SvsG2M <- ccphase_vp_s8[ccphase_vp_s8$phase == "S" | 
+                                        ccphase_vp_s8$phase == "G2M", ]
+wilcox.test(vp ~ phase, ccphase_vp_s8_SvsG2M) 
+
+
+## Compare each cell cycle phase between different samples ##
+ccphase_vp_s6_G1$sample <- rep("s6", nrow(ccphase_vp_s6_G1))
+ccphase_vp_s7_G1$sample <- rep("s7", nrow(ccphase_vp_s7_G1))
+ccphase_vp_s8_G1$sample <- rep("s8", nrow(ccphase_vp_s8_G1))
+ccphase_vp_s6vs7_G1 <- rbind(ccphase_vp_s6_G1, ccphase_vp_s7_G1)
+ccphase_vp_s6vs8_G1 <- rbind(ccphase_vp_s6_G1, ccphase_vp_s8_G1)
+ccphase_vp_s7vs8_G1 <- rbind(ccphase_vp_s7_G1, ccphase_vp_s8_G1)
+wilcox.test(vp ~ sample, ccphase_vp_s6vs7_G1) 
+wilcox.test(vp ~ sample, ccphase_vp_s6vs8_G1) 
+wilcox.test(vp ~ sample, ccphase_vp_s7vs8_G1) 
+
+ccphase_vp_s6_S$sample <- rep("s6", nrow(ccphase_vp_s6_S))
+ccphase_vp_s7_S$sample <- rep("s7", nrow(ccphase_vp_s7_S))
+ccphase_vp_s8_S$sample <- rep("s8", nrow(ccphase_vp_s8_S))
+ccphase_vp_s6vs7_S <- rbind(ccphase_vp_s6_S, ccphase_vp_s7_S)
+ccphase_vp_s6vs8_S <- rbind(ccphase_vp_s6_S, ccphase_vp_s8_S)
+ccphase_vp_s7vs8_S <- rbind(ccphase_vp_s7_S, ccphase_vp_s8_S)
+wilcox.test(vp ~ sample, ccphase_vp_s6vs7_S) 
+wilcox.test(vp ~ sample, ccphase_vp_s6vs8_S) 
+wilcox.test(vp ~ sample, ccphase_vp_s7vs8_S) 
+
+ccphase_vp_s6_G2M$sample <- rep("s6", nrow(ccphase_vp_s6_G2M))
+ccphase_vp_s7_G2M$sample <- rep("s7", nrow(ccphase_vp_s7_G2M))
+ccphase_vp_s8_G2M$sample <- rep("s8", nrow(ccphase_vp_s8_G2M))
+ccphase_vp_s6vs7_G2M <- rbind(ccphase_vp_s6_G2M, ccphase_vp_s7_G2M)
+ccphase_vp_s6vs8_G2M <- rbind(ccphase_vp_s6_G2M, ccphase_vp_s8_G2M)
+ccphase_vp_s7vs8_G2M <- rbind(ccphase_vp_s7_G2M, ccphase_vp_s8_G2M)
+wilcox.test(vp ~ sample, ccphase_vp_s6vs7_G2M) 
+wilcox.test(vp ~ sample, ccphase_vp_s6vs8_G2M) 
+wilcox.test(vp ~ sample, ccphase_vp_s7vs8_G2M)
+
+```
+
+
+
+#### Restore ident and save HBEpC Seurat object ####
+```{r warning=FALSE, message=FALSE}
+cc_ident <- as.data.frame(HBEpC@ident)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Initially, HBEpC@ident is a factor with 3 levels (G1, S, G2M)
+write.csv(cc_ident, file="Cell-cycle-identity_HBEpC.csv")
+
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S5_HBEpC-Mock.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S6_HBEpC-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S7_HBEpC-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S8_HBEpC-24h.RData")
+
+cc_ident_initial <- cbind(cc_ident, 
+                          data.frame(c(rep("Mock", ncol(s5)), rep("6h", ncol(s6)), 
+                                       rep("12h", ncol(s7)), rep("24h", ncol(s8)))))
+cc_ident_initial$`HBEpC@ident` <- NULL
+colnames(cc_ident_initial) <- "ident"
+ident <- factor(cc_ident_initial$ident, levels=c("Mock", "6h", "12h", "24h"))
+attributes(ident)$names <- rownames(cc_ident_initial)
+HBEpC_withcc <- HBEpC
+HBEpC_withcc@ident <- ident
+
+save(HBEpC_withcc, 
+     file="HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+
+```
+

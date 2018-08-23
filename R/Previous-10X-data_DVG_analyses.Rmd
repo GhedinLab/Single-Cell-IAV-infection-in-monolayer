@@ -1,0 +1,3040 @@
+---
+title: "Previous-10X-data_DVG_analyses"
+author: "Chang Wang"
+date: "8/1/2018"
+output: 
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Data filtering ######
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(ggplot2)
+
+```
+
+#### A549 cells ####
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_2017Feb/2018Summer/CellQC/A549/")
+
+```
+
+#### Read gene expression matrix data ####
+```{r warning=FALSE, message=FALSE}
+s2.data <- Read10X("~/Documents/10XGenomics_2017Feb/Re-analyses_10X_Feb_lib_data_2017summer/Sample2_hg19-PR8alignment/filtered_gene_bc_matrices/hg19_PR8segs/")
+s2 <- as.data.frame(as.matrix(s2.data))
+s2_virus <- read.table("../../S2/A549_6h_lowMOI_S2_viral_all_UMI_counts_summary.txt", 
+                       sep=",", header=TRUE, row.names=1)
+s2_virus$seg <- rownames(s2_virus)
+s2_virus <- s2_virus[order(s2_virus$seg), ]
+rownames(s2_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s2_virus$seg <- NULL
+s2_virus[is.na(s2_virus)] <- 0 
+
+s3.data <- Read10X("~/Documents/10XGenomics_2017Feb/Re-analyses_10X_Feb_lib_data_2017summer/Sample3_hg19-PR8alignment/filtered_gene_bc_matrices/hg19_PR8segs/")
+s3 <- as.data.frame(as.matrix(s3.data))
+s3_virus <- read.table("../../S3/A549_6h_highMOI_S3_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE, row.names=1)
+s3_virus$seg <- rownames(s3_virus)
+s3_virus <- s3_virus[order(s3_virus$seg), ]
+rownames(s3_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s3_virus$seg <- NULL
+s3_virus[is.na(s3_virus)] <- 0 
+
+```
+
+
+
+#### Replace viral UMI counts in the output from pipeline ####
+```{r warning=FALSE, message=FALSE}
+## S2
+s2_virus <- s2_virus[, colnames(s2)]
+s2 <- rbind(s2[1:(nrow(s2)-8), ], s2_virus)
+
+
+## S3
+s3_virus <- s3_virus[, colnames(s3)]
+s3 <- rbind(s3[1:(nrow(s3)-8), ], s3_virus)
+
+
+## Export raw data
+write.table(s2, file="../../S2/sc_A549_lowMOI.txt", sep="\t", quote=FALSE, na="na")
+write.table(s3, file="../../S3/sc_A549_highMOI.txt", sep="\t", quote=FALSE, na="na")
+
+```
+
+
+
+#### Prepare metrics file ####
+```{r warning=FALSE, message=FALSE}
+## Sample 2 (A549 low MOI) ##
+# load metrics csv file
+s2_metrics <- read.csv("../../../Re-analyses_10X-Feb-lib-data_2017Fall/S2/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s2_metrics <- s2_metrics[colnames(s2), ]
+# remove rows that could not find matches in gene expression matrix
+s2_metrics <- na.omit(s2_metrics)
+
+# log10 transformation of # of reads per cell
+s2_metrics$log10reads <- log10(s2_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s2_metrics$map_percentage <- s2_metrics$mapped_reads/s2_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s2_metrics$genes <- colSums(s2 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s2_metrics$UMI <- colSums(s2)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s2_metrics$log10UMI <- log10(s2_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s2_mito.genes <- grep(pattern="^MT-", x=rownames(s2), value=TRUE)
+s2_percent.mito <- Matrix::colSums(s2[s2_mito.genes, ]) / Matrix::colSums(s2)
+s2_metrics$percentage.mito <- s2_percent.mito
+
+# export the metrics to a csv file and keep a record
+write.csv(s2_metrics, file="CellQC_metrics_S2.csv")
+
+
+## Sample 3 (A549 high MOI) ##
+# load metrics csv file
+s3_metrics <- read.csv("../../../Re-analyses_10X-Feb-lib-data_2017Fall/S3/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s3_metrics <- s3_metrics[colnames(s3), ]
+# remove rows that could not find matches in gene expression matrix
+s3_metrics <- na.omit(s3_metrics)
+
+# log10 transformation of # of reads per cell
+s3_metrics$log10reads <- log10(s3_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s3_metrics$map_percentage <- s3_metrics$mapped_reads/s3_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s3_metrics$genes <- colSums(s3 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s3_metrics$UMI <- colSums(s3)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s3_metrics$log10UMI <- log10(s3_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s3_mito.genes <- grep(pattern="^MT-", x=rownames(s3), value=TRUE)
+s3_percent.mito <- Matrix::colSums(s3[s3_mito.genes, ]) / Matrix::colSums(s3)
+s3_metrics$percentage.mito <- s3_percent.mito
+
+# export the metrics to a csv file and keep a record
+write.csv(s3_metrics, file="CellQC_metrics_S3.csv")
+
+```
+
+
+
+#### Merge all the metrics data into one metrics ####
+```{r warning=FALSE, message=FALSE}
+s2_metrics$cid <- rownames(s2_metrics)
+s2_metrics$sample <- rep("low_MOI", nrow(s2_metrics))
+s2_metrics$pseudo_id <- seq(1, nrow(s2_metrics))
+
+s3_metrics$cid <- rownames(s3_metrics)
+s3_metrics$sample <- rep("high_MOI", nrow(s3_metrics))
+s3_metrics$pseudo_id <- seq(1, nrow(s3_metrics))
+
+metrics <- rbind(s2_metrics, s3_metrics)
+metrics$sample <- factor(metrics$sample, 
+                         levels=c("low_MOI", "high_MOI"))
+
+```
+
+
+
+#### Calculate the criteria for data filtering (for cells) ####
+```{r warning=FALSE, message=FALSE}
+## The number of detected genes per cell
+# check the number of detected genes per cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+# Density Plot
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000))
+
+# Density plot add vertical lines (threshold setted)
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000)) +
+  geom_vline(xintercept=c(2000), size=1)
+
+gene_low_threshold <- 2000 # change this value according to the plot for different sample groups
+
+# Check the # of cells that will be filtered out
+sum(s2_metrics$genes < gene_low_threshold) 
+sum(s3_metrics$genes < gene_low_threshold) 
+
+
+## The alignment rate
+# check the alignment rate for each cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.1, 1, 0.1), limits=c(0.4, 1))
+
+# Density Plot
+ggplot(metrics, aes(x=map_percentage, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.1, 1, 0.1), limits=c(0.4, 1)) +
+  scale_y_continuous(breaks=seq(0, 40, 10))
+
+# set the range for the alignment rate (mean+/-3*sd)
+align_low_threshold_s2 <- mean(s2_metrics$map_percentage) - 3*sd(s2_metrics$map_percentage)
+align_high_threshold_s2 <- mean(s2_metrics$map_percentage) + 3*sd(s2_metrics$map_percentage)
+align_low_threshold_s3 <- mean(s3_metrics$map_percentage) - 3*sd(s3_metrics$map_percentage)
+align_high_threshold_s3 <- mean(s3_metrics$map_percentage) + 3*sd(s3_metrics$map_percentage)
+
+ggplot(s2_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s2, align_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s3, align_high_threshold_s3), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s2_metrics$map_percentage <= align_low_threshold_s2) + sum(s2_metrics$map_percentage >= align_high_threshold_s2) 
+sum(s3_metrics$map_percentage <= align_low_threshold_s3) + sum(s3_metrics$map_percentage >= align_high_threshold_s3) 
+
+
+## The total number of reads (log10 transformed)
+# check the total number of reads 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5), limits=c(3.5, 5.5))
+
+# Density Plot
+ggplot(metrics, aes(x=log10reads, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# set the range for the number of reads (mean+/-3*sd)
+reads_low_threshold_s2 <- mean(log10(s2_metrics$reads)) - 3*sd(log10(s2_metrics$reads))
+reads_high_threshold_s2 <- mean(log10(s2_metrics$reads)) + 3*sd(log10(s2_metrics$reads))
+reads_low_threshold_s3 <- mean(log10(s3_metrics$reads)) - 3*sd(log10(s3_metrics$reads))
+reads_high_threshold_s3 <- mean(log10(s3_metrics$reads)) + 3*sd(log10(s3_metrics$reads))
+
+ggplot(s2_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s2, reads_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s3, reads_high_threshold_s3), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s2_metrics$log10reads <= reads_low_threshold_s2) + sum(s2_metrics$log10reads >= reads_high_threshold_s2) 
+sum(s3_metrics$log10reads <= reads_low_threshold_s3) + sum(s3_metrics$log10reads >= reads_high_threshold_s3) 
+
+
+## The total number of UMI (log10 transformed)
+# check the total number of UMI 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# Density Plot
+ggplot(metrics, aes(x=log10UMI, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# set the range for the number of UMI (mean+/-3*sd)
+log10UMI_low_threshold_s2 <- mean(s2_metrics$log10UMI) - 3*sd(s2_metrics$log10UMI)
+log10UMI_high_threshold_s2 <- mean(s2_metrics$log10UMI) + 3*sd(s2_metrics$log10UMI)
+log10UMI_low_threshold_s3 <- mean(s3_metrics$log10UMI) - 3*sd(s3_metrics$log10UMI)
+log10UMI_high_threshold_s3 <- mean(s3_metrics$log10UMI) + 3*sd(s3_metrics$log10UMI)
+
+ggplot(s2_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s2, log10UMI_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s3, log10UMI_high_threshold_s3), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s2_metrics$log10UMI <= log10UMI_low_threshold_s2) + sum(s2_metrics$log10UMI >= log10UMI_high_threshold_s2) 
+sum(s3_metrics$log10UMI <= log10UMI_low_threshold_s3) + sum(s3_metrics$log10UMI >= log10UMI_high_threshold_s3) 
+
+
+## The percentage of reads mapped to the mitochondrial genes
+# Box plot
+ggplot(metrics, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+# Density Plot
+ggplot(metrics, aes(x=percentage.mito, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0, 0.65, 0.05))
+
+# set the range for the percentage of mitochondrial genes (mean+/-3*sd)
+mito.genes_low_threshold_s2 <- mean(s2_metrics$percentage.mito) - 3*sd(s2_metrics$percentage.mito)
+mito.genes_high_threshold_s2 <- mean(s2_metrics$percentage.mito) + 3*sd(s2_metrics$percentage.mito)
+mito.genes_low_threshold_s3 <- mean(s3_metrics$percentage.mito) - 3*sd(s3_metrics$percentage.mito)
+mito.genes_high_threshold_s3 <- mean(s3_metrics$percentage.mito) + 3*sd(s3_metrics$percentage.mito)
+
+ggplot(s2_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s2, mito.genes_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s3, mito.genes_high_threshold_s3), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s2_metrics$percentage.mito <= mito.genes_low_threshold_s2) + sum(s2_metrics$percentage.mito >= mito.genes_high_threshold_s2) 
+sum(s3_metrics$percentage.mito <= mito.genes_low_threshold_s3) + sum(s3_metrics$percentage.mito >= mito.genes_high_threshold_s3) 
+
+```
+
+
+
+#### Check the distribution of total, viral, and host UMI ####
+```{r warning=FALSE, message=FALSE}
+s2_host <- s2[1:(nrow(s2)-8), ]
+s3_host <- s3[1:(nrow(s3)-8), ]
+
+s2_host_sum <- as.data.frame(colSums(s2_host))
+s3_host_sum <- as.data.frame(colSums(s3_host))
+
+s2_virus_sum <- as.data.frame(colSums(s2_virus))
+s3_virus_sum <- as.data.frame(colSums(s3_virus))
+
+s2_host_virus_sum <- cbind(s2_host_sum, s2_virus_sum)
+s3_host_virus_sum <- cbind(s3_host_sum, s3_virus_sum)
+
+colnames(s2_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s3_host_virus_sum) <- c("host_sum", "virus_sum")
+
+s2_host_virus_sum$sample <- rep("low_MOI", nrow(s2_host_virus_sum))
+s3_host_virus_sum$sample <- rep("high_MOI", nrow(s3_host_virus_sum))
+
+s23_host_virus_sum <- rbind(s2_host_virus_sum, s3_host_virus_sum)
+s23_host_virus_sum$sample <- factor(s23_host_virus_sum$sample, levels=c("low_MOI", "high_MOI"))
+
+ggplot(s23_host_virus_sum, aes(x=host_sum, y=virus_sum), fill=sample) +
+  geom_point() +
+  facet_grid(~sample) +
+  geom_abline(slope=1, intercept=0) +
+  scale_x_continuous(breaks=seq(0, 70000, 10000), limits=c(0, 70000)) +
+  scale_y_continuous(breaks=seq(0, 20000, 4000), limits=c(0, 20000)) +
+  geom_rug(alpha=0.8)
+
+s2_host_sum_median <- median(log10(s2_host_sum$`colSums(s2_host)`))
+s2_host_sum_high <- s2_host_sum_median + 3*sd(log10(s2_host_sum$`colSums(s2_host)`))
+s2_host_sum_low <- s2_host_sum_median - 3*sd(log10(s2_host_sum$`colSums(s2_host)`))
+
+s3_host_sum_median <- median(log10(s3_host_sum$`colSums(s3_host)`))
+s3_host_sum_high <- s3_host_sum_median + 3*sd(log10(s3_host_sum$`colSums(s3_host)`))
+s3_host_sum_low <- s3_host_sum_median - 3*sd(log10(s3_host_sum$`colSums(s3_host)`))
+
+# Check the # of cells that will be filtered out by cellular UMIs
+sum(log10(s2_host_virus_sum$host_sum) <= s2_host_sum_low) + sum(log10(s2_host_virus_sum$host_sum) >= s2_host_sum_high) 
+sum(log10(s3_host_virus_sum$host_sum) <= s3_host_sum_low) + sum(log10(s3_host_virus_sum$host_sum) >= s3_host_sum_high) 
+
+
+## Compare with the cells filtered out by the total UMIs
+s2_totalUMI_fail <- as.character(rownames(s2_metrics[s2_metrics$log10UMI <= log10UMI_low_threshold_s2 | 
+                                                       s2_metrics$log10UMI >= log10UMI_high_threshold_s2, ]))
+s3_totalUMI_fail <- as.character(rownames(s3_metrics[s3_metrics$log10UMI <= log10UMI_low_threshold_s3 | 
+                                                       s3_metrics$log10UMI >= log10UMI_high_threshold_s3, ]))
+
+s2_host_virus_sum$host_sum_log10 <- log10(s2_host_virus_sum$host_sum)
+s3_host_virus_sum$host_sum_log10 <- log10(s3_host_virus_sum$host_sum)
+s2_cellularUMI_fail <- 
+  as.character(rownames(s2_host_virus_sum[s2_host_virus_sum$host_sum_log10 <= s2_host_sum_low | 
+                                            s2_host_virus_sum$host_sum_log10 >= s2_host_sum_high, ]))
+s3_cellularUMI_fail <- 
+  as.character(rownames(s3_host_virus_sum[s3_host_virus_sum$host_sum_log10 <= s3_host_sum_low | 
+                                            s3_host_virus_sum$host_sum_log10 >= s3_host_sum_high, ]))
+
+length(intersect(s2_totalUMI_fail, s2_cellularUMI_fail)) 
+length(intersect(s3_totalUMI_fail, s3_cellularUMI_fail)) 
+
+# extract the ID of cells that fail to pass QC according to at least one criterion
+s2_gene_fail <- as.character(rownames(s2_metrics[s2_metrics$genes < 2000, ]))
+s3_gene_fail <- as.character(rownames(s3_metrics[s3_metrics$genes < 2000, ]))
+
+s2_maprate_fail <- 
+  as.character(rownames(s2_metrics[s2_metrics$map_percentage <= align_low_threshold_s2 | 
+                                     s2_metrics$map_percentage >= align_high_threshold_s2, ]))
+s3_maprate_fail <- 
+  as.character(rownames(s3_metrics[s3_metrics$map_percentage <= align_low_threshold_s3 | 
+                                     s3_metrics$map_percentage >= align_high_threshold_s3, ]))
+
+s2_read_fail <- 
+  as.character(rownames(s2_metrics[s2_metrics$log10reads <= reads_low_threshold_s2 | 
+                                     s2_metrics$log10reads >= reads_high_threshold_s2, ]))
+s3_read_fail <- 
+  as.character(rownames(s3_metrics[s3_metrics$log10reads <= reads_low_threshold_s3 | 
+                                     s3_metrics$log10reads >= reads_high_threshold_s3, ]))
+
+s2_fail_4c <- union(union(union(s2_gene_fail, s2_maprate_fail), 
+                          s2_read_fail), 
+                    s2_totalUMI_fail)
+s3_fail_4c <- union(union(union(s3_gene_fail, s3_maprate_fail), 
+                          s3_read_fail), 
+                    s3_totalUMI_fail)
+
+# Check if the cells failed cellularUMI criterion are in the union
+sum(s2_cellularUMI_fail %in% s2_fail_4c) 
+sum(s3_cellularUMI_fail %in% s3_fail_4c) 
+# Given the fact that cells failed the cellular UMI criterion are mostly included in the cells failed above four given criteria, we just decided to keep the total UMI criterion for cell QC.
+
+```
+
+
+
+#### Initial filtering of low quality cells ####
+```{r warning=FALSE, message=FALSE}
+## Filtering based on # of genes, the alignment rate, # of reads, # of UMI
+## Sample 2
+dim(s2) 
+
+s2 <- s2[, rownames(s2_metrics[s2_metrics$genes >= gene_low_threshold &
+                                 s2_metrics$map_percentage > align_low_threshold_s2 & 
+                                 s2_metrics$map_percentage < align_high_threshold_s2 &
+                                 s2_metrics$log10reads > reads_low_threshold_s2 &
+                                 s2_metrics$log10reads < reads_high_threshold_s2 &
+                                 s2_metrics$log10UMI > log10UMI_low_threshold_s2 &
+                                 s2_metrics$log10UMI < log10UMI_high_threshold_s2 &
+                                 s2_metrics$percentage.mito > mito.genes_low_threshold_s2 &
+                                 s2_metrics$percentage.mito < mito.genes_high_threshold_s2, ])]
+dim(s2) 
+
+
+## Sample 3
+dim(s3) 
+
+s3 <- s3[, rownames(s3_metrics[s3_metrics$genes >= gene_low_threshold &
+                                 s3_metrics$map_percentage > align_low_threshold_s3 & 
+                                 s3_metrics$map_percentage < align_high_threshold_s3 &
+                                 s3_metrics$log10reads > reads_low_threshold_s3 &
+                                 s3_metrics$log10reads < reads_high_threshold_s3 &
+                                 s3_metrics$log10UMI > log10UMI_low_threshold_s3 &
+                                 s3_metrics$log10UMI < log10UMI_high_threshold_s3 &
+                                 s3_metrics$percentage.mito > mito.genes_low_threshold_s3 &
+                                 s3_metrics$percentage.mito < mito.genes_high_threshold_s3, ])]
+dim(s3)
+
+```
+
+
+
+#### Filtering cells based on the number of detected genes given the number of UMIs ####
+```{r warning=FALSE, message=FALSE}
+s2_metrics_after_filter1 <- s2_metrics[colnames(s2),]
+s3_metrics_after_filter1 <- s3_metrics[colnames(s3),]
+
+metrics_after_filter1 <- rbind(s2_metrics_after_filter1, s3_metrics_after_filter1)
+metrics_after_filter1$sample <- factor(metrics_after_filter1$sample,
+                                       levels=c("low_MOI", "high_MOI"))
+
+# Scatter plot
+ggplot(metrics_after_filter1, aes(x=log10UMI, y=genes, color=sample)) +
+  geom_point(alpha=0.8) +
+  labs(x="Number of UMIs (log10 transformed)", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+# No obvious outliers
+
+```
+
+
+
+#### Re-plot the # genes detected, mapping rate, # of UMI and reads, and mitochondrial gene ratio ####
+```{r warning=FALSE, message=FALSE}
+ggplot(metrics_after_filter1, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+ggplot(metrics_after_filter1, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+```
+
+
+
+#### Filtering out genes not detected in at least 3 cells ####
+```{r warning=FALSE, message=FALSE}
+s2 <- s2[rowSums(s2 != 0) >= 3, ]
+s3 <- s3[rowSums(s3 != 0) >= 3, ]
+
+dim(s2) 
+dim(s3)
+
+```
+
+
+
+#### Save QCed gene expression matrix ####
+```{r warning=FALSE, message=FALSE}
+## Sample 2
+save(s2, file="A549_lowMOI_QCed_gene-expression-matrix_s2.RData")
+
+## Sample 3
+save(s3, file="A549_highMOI_QCed_gene-expression-matrix_s3.RData")
+
+```
+
+
+
+#### MDCK cells ####
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_2017Feb/2018Summer/CellQC/MDCK/")
+
+```
+
+
+
+#### Read gene expression matrix data ####
+```{r warning=FALSE, message=FALSE}
+s6.data <- Read10X("~/Documents/10XGenomics_2017Feb/Re-analyses_10X_Feb_lib_data_2017summer/Sample6_canine-PR8alignment/filtered_gene_bc_matrices/canine_PR8segs/")
+s6 <- as.data.frame(as.matrix(s6.data))
+s6_virus <- read.table("../../s6/MDCK_6h_lowMOI_S6_viral_all_UMI_counts_summary.txt", 
+                       sep=",", header=TRUE)
+s6_virus <- s6_virus[order(s6_virus$seg), ]
+rownames(s6_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s6_virus$seg <- NULL
+s6_virus[is.na(s6_virus)] <- 0 
+
+s7.data <- Read10X("~/Documents/10XGenomics_2017Feb/Re-analyses_10X_Feb_lib_data_2017summer/Sample7_canine-PR8alignment/filtered_gene_bc_matrices/canine_PR8segs/")
+s7 <- as.data.frame(as.matrix(s7.data))
+s7_virus <- read.table("../../s7/MDCK_6h_highMOI_s7_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE)
+s7_virus <- s7_virus[order(s7_virus$seg), ]
+rownames(s7_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s7_virus$seg <- NULL
+s7_virus[is.na(s7_virus)] <- 0 
+
+```
+
+
+
+#### Replace viral UMI counts in the output from pipeline ####
+```{r warning=FALSE, message=FALSE}
+## s6
+s6_virus <- s6_virus[, colnames(s6)]
+s6 <- rbind(s6[1:(nrow(s6)-8), ], s6_virus)
+
+
+## s7
+s7_virus <- s7_virus[, colnames(s7)]
+s7 <- rbind(s7[1:(nrow(s7)-8), ], s7_virus)
+
+
+## Export raw data
+write.table(s6, file="../../S6/sc_MDCK_lowMOI.txt", sep="\t", quote=FALSE, na="na")
+write.table(s7, file="../../S7/sc_MDCK_highMOI.txt", sep="\t", quote=FALSE, na="na")
+
+```
+
+
+
+#### Prepare metrics file ####
+```{r warning=FALSE, message=FALSE}
+## Sample 6 (MDCK low MOI) ##
+# load metrics csv file
+s6_metrics <- read.csv("../../../Re-analyses_10X-Feb-lib-data_2017Fall/S6/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s6_metrics <- s6_metrics[colnames(s6), ]
+# remove rows that could not find matches in gene expression matrix
+s6_metrics <- na.omit(s6_metrics)
+
+# log10 transformation of # of reads per cell
+s6_metrics$log10reads <- log10(s6_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s6_metrics$map_percentage <- s6_metrics$mapped_reads/s6_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s6_metrics$genes <- colSums(s6 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s6_metrics$UMI <- colSums(s6)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s6_metrics$log10UMI <- log10(s6_metrics$UMI)
+
+# export the metrics to a csv file and keep a record
+write.csv(s6_metrics, file="CellQC_metrics_s6.csv")
+
+
+## Sample 7 (MDCK high MOI) ##
+# load metrics csv file
+s7_metrics <- read.csv("../../../Re-analyses_10X-Feb-lib-data_2017Fall/S7/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s7_metrics <- s7_metrics[colnames(s7), ]
+# remove rows that could not find matches in gene expression matrix
+s7_metrics <- na.omit(s7_metrics)
+
+# log10 transformation of # of reads per cell
+s7_metrics$log10reads <- log10(s7_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s7_metrics$map_percentage <- s7_metrics$mapped_reads/s7_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s7_metrics$genes <- colSums(s7 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s7_metrics$UMI <- colSums(s7)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s7_metrics$log10UMI <- log10(s7_metrics$UMI)
+
+# export the metrics to a csv file and keep a record
+write.csv(s7_metrics, file="CellQC_metrics_s7.csv")
+
+```
+
+
+
+#### Merge all the metrics data into one metrics ####
+```{r warning=FALSE, message=FALSE}
+s6_metrics$cid <- rownames(s6_metrics)
+s6_metrics$sample <- rep("low_MOI", nrow(s6_metrics))
+s6_metrics$pseudo_id <- seq(1, nrow(s6_metrics))
+
+s7_metrics$cid <- rownames(s7_metrics)
+s7_metrics$sample <- rep("high_MOI", nrow(s7_metrics))
+s7_metrics$pseudo_id <- seq(1, nrow(s7_metrics))
+
+metrics <- rbind(s6_metrics, s7_metrics)
+metrics$sample <- factor(metrics$sample, 
+                         levels=c("low_MOI", "high_MOI"))
+
+```
+
+
+
+#### Calculate the criteria for data filtering (for cells) ####
+```{r warning=FALSE, message=FALSE}
+## The number of detected genes per cell
+# check the number of detected genes per cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+# Density Plot
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000))
+
+# Density plot add vertical lines (threshold setted)
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000)) +
+  geom_vline(xintercept=c(2000), size=1)
+
+gene_low_threshold <- 2000 # change this value according to the plot for different sample groups
+
+# Check the # of cells that will be filtered out
+sum(s6_metrics$genes < gene_low_threshold) 
+sum(s7_metrics$genes < gene_low_threshold) 
+
+
+## The alignment rate
+# check the alignment rate for each cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.1, 1, 0.1), limits=c(0.4, 1))
+
+# Density Plot
+ggplot(metrics, aes(x=map_percentage, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.1, 1, 0.1), limits=c(0.4, 1)) +
+  scale_y_continuous(breaks=seq(0, 40, 10))
+
+# set the range for the alignment rate (mean+/-3*sd)
+align_low_threshold_s6 <- mean(s6_metrics$map_percentage) - 3*sd(s6_metrics$map_percentage)
+align_high_threshold_s6 <- mean(s6_metrics$map_percentage) + 3*sd(s6_metrics$map_percentage)
+align_low_threshold_s7 <- mean(s7_metrics$map_percentage) - 3*sd(s7_metrics$map_percentage)
+align_high_threshold_s7 <- mean(s7_metrics$map_percentage) + 3*sd(s7_metrics$map_percentage)
+
+ggplot(s6_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s6, align_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s7, align_high_threshold_s7), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s6_metrics$map_percentage <= align_low_threshold_s6) + sum(s6_metrics$map_percentage >= align_high_threshold_s6) 
+sum(s7_metrics$map_percentage <= align_low_threshold_s7) + sum(s7_metrics$map_percentage >= align_high_threshold_s7) 
+
+
+## The total number of reads (log10 transformed)
+# check the total number of reads 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5), limits=c(3.5, 5.5))
+
+# Density Plot
+ggplot(metrics, aes(x=log10reads, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# set the range for the number of reads (mean+/-3*sd)
+reads_low_threshold_s6 <- mean(log10(s6_metrics$reads)) - 3*sd(log10(s6_metrics$reads))
+reads_high_threshold_s6 <- mean(log10(s6_metrics$reads)) + 3*sd(log10(s6_metrics$reads))
+reads_low_threshold_s7 <- mean(log10(s7_metrics$reads)) - 3*sd(log10(s7_metrics$reads))
+reads_high_threshold_s7 <- mean(log10(s7_metrics$reads)) + 3*sd(log10(s7_metrics$reads))
+
+ggplot(s6_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s6, reads_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s7, reads_high_threshold_s7), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s6_metrics$log10reads <= reads_low_threshold_s6) + sum(s6_metrics$log10reads >= reads_high_threshold_s6) 
+sum(s7_metrics$log10reads <= reads_low_threshold_s7) + sum(s7_metrics$log10reads >= reads_high_threshold_s7) 
+
+
+## The total number of UMI (log10 transformed)
+# check the total number of UMI 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# Density Plot
+ggplot(metrics, aes(x=log10UMI, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# set the range for the number of UMI (mean+/-3*sd)
+log10UMI_low_threshold_s6 <- mean(s6_metrics$log10UMI) - 3*sd(s6_metrics$log10UMI)
+log10UMI_high_threshold_s6 <- mean(s6_metrics$log10UMI) + 3*sd(s6_metrics$log10UMI)
+log10UMI_low_threshold_s7 <- mean(s7_metrics$log10UMI) - 3*sd(s7_metrics$log10UMI)
+log10UMI_high_threshold_s7 <- mean(s7_metrics$log10UMI) + 3*sd(s7_metrics$log10UMI)
+
+ggplot(s6_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s6, log10UMI_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s7, log10UMI_high_threshold_s7), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s6_metrics$log10UMI <= log10UMI_low_threshold_s6) + sum(s6_metrics$log10UMI >= log10UMI_high_threshold_s6) 
+sum(s7_metrics$log10UMI <= log10UMI_low_threshold_s7) + sum(s7_metrics$log10UMI >= log10UMI_high_threshold_s7) 
+
+
+```
+
+
+
+#### Check the distribution of total, viral, and host UMI ####
+```{r warning=FALSE, message=FALSE}
+s6_host <- s6[1:(nrow(s6)-8), ]
+s7_host <- s7[1:(nrow(s7)-8), ]
+
+s6_host_sum <- as.data.frame(colSums(s6_host))
+s7_host_sum <- as.data.frame(colSums(s7_host))
+
+s6_virus_sum <- as.data.frame(colSums(s6_virus))
+s7_virus_sum <- as.data.frame(colSums(s7_virus))
+
+s6_host_virus_sum <- cbind(s6_host_sum, s6_virus_sum)
+s7_host_virus_sum <- cbind(s7_host_sum, s7_virus_sum)
+
+colnames(s6_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s7_host_virus_sum) <- c("host_sum", "virus_sum")
+
+s6_host_virus_sum$sample <- rep("low_MOI", nrow(s6_host_virus_sum))
+s7_host_virus_sum$sample <- rep("high_MOI", nrow(s7_host_virus_sum))
+
+s67_host_virus_sum <- rbind(s6_host_virus_sum, s7_host_virus_sum)
+s67_host_virus_sum$sample <- factor(s67_host_virus_sum$sample, levels=c("low_MOI", "high_MOI"))
+
+ggplot(s67_host_virus_sum, aes(x=host_sum, y=virus_sum), fill=sample) +
+  geom_point() +
+  facet_grid(~sample) +
+  geom_abline(slope=1, intercept=0) +
+  scale_x_continuous(breaks=seq(0, 70000, 10000), limits=c(0, 70000)) +
+  scale_y_continuous(breaks=seq(0, 20000, 4000), limits=c(0, 20000)) +
+  geom_rug(alpha=0.8)
+
+s6_host_sum_median <- median(log10(s6_host_sum$`colSums(s6_host)`))
+s6_host_sum_high <- s6_host_sum_median + 3*sd(log10(s6_host_sum$`colSums(s6_host)`))
+s6_host_sum_low <- s6_host_sum_median - 3*sd(log10(s6_host_sum$`colSums(s6_host)`))
+
+s7_host_sum_median <- median(log10(s7_host_sum$`colSums(s7_host)`))
+s7_host_sum_high <- s7_host_sum_median + 3*sd(log10(s7_host_sum$`colSums(s7_host)`))
+s7_host_sum_low <- s7_host_sum_median - 3*sd(log10(s7_host_sum$`colSums(s7_host)`))
+
+# Check the # of cells that will be filtered out by cellular UMIs
+sum(log10(s6_host_virus_sum$host_sum) <= s6_host_sum_low) + sum(log10(s6_host_virus_sum$host_sum) >= s6_host_sum_high) 
+sum(log10(s7_host_virus_sum$host_sum) <= s7_host_sum_low) + sum(log10(s7_host_virus_sum$host_sum) >= s7_host_sum_high) 
+
+
+## Compare with the cells filtered out by the total UMIs
+s6_totalUMI_fail <- as.character(rownames(s6_metrics[s6_metrics$log10UMI <= log10UMI_low_threshold_s6 | 
+                                                       s6_metrics$log10UMI >= log10UMI_high_threshold_s6, ]))
+s7_totalUMI_fail <- as.character(rownames(s7_metrics[s7_metrics$log10UMI <= log10UMI_low_threshold_s7 | 
+                                                       s7_metrics$log10UMI >= log10UMI_high_threshold_s7, ]))
+
+s6_host_virus_sum$host_sum_log10 <- log10(s6_host_virus_sum$host_sum)
+s7_host_virus_sum$host_sum_log10 <- log10(s7_host_virus_sum$host_sum)
+s6_cellularUMI_fail <- 
+  as.character(rownames(s6_host_virus_sum[s6_host_virus_sum$host_sum_log10 <= s6_host_sum_low | 
+                                            s6_host_virus_sum$host_sum_log10 >= s6_host_sum_high, ]))
+s7_cellularUMI_fail <- 
+  as.character(rownames(s7_host_virus_sum[s7_host_virus_sum$host_sum_log10 <= s7_host_sum_low | 
+                                            s7_host_virus_sum$host_sum_log10 >= s7_host_sum_high, ]))
+
+length(intersect(s6_totalUMI_fail, s6_cellularUMI_fail)) 
+length(intersect(s7_totalUMI_fail, s7_cellularUMI_fail)) 
+
+# extract the ID of cells that fail to pass QC according to at least one criterion
+s6_gene_fail <- as.character(rownames(s6_metrics[s6_metrics$genes < 2000, ]))
+s7_gene_fail <- as.character(rownames(s7_metrics[s7_metrics$genes < 2000, ]))
+
+s6_maprate_fail <- 
+  as.character(rownames(s6_metrics[s6_metrics$map_percentage <= align_low_threshold_s6 | 
+                                     s6_metrics$map_percentage >= align_high_threshold_s6, ]))
+s7_maprate_fail <- 
+  as.character(rownames(s7_metrics[s7_metrics$map_percentage <= align_low_threshold_s7 | 
+                                     s7_metrics$map_percentage >= align_high_threshold_s7, ]))
+
+s6_read_fail <- 
+  as.character(rownames(s6_metrics[s6_metrics$log10reads <= reads_low_threshold_s6 | 
+                                     s6_metrics$log10reads >= reads_high_threshold_s6, ]))
+s7_read_fail <- 
+  as.character(rownames(s7_metrics[s7_metrics$log10reads <= reads_low_threshold_s7 | 
+                                     s7_metrics$log10reads >= reads_high_threshold_s7, ]))
+
+s6_fail_4c <- union(union(union(s6_gene_fail, s6_maprate_fail), 
+                          s6_read_fail), 
+                    s6_totalUMI_fail)
+s7_fail_4c <- union(union(union(s7_gene_fail, s7_maprate_fail), 
+                          s7_read_fail), 
+                    s7_totalUMI_fail)
+
+# Check if the cells failed cellularUMI criterion are in the union
+sum(s6_cellularUMI_fail %in% s6_fail_4c) 
+sum(s7_cellularUMI_fail %in% s7_fail_4c) 
+# Given the fact that cells failed the cellular UMI criterion are mostly included in the cells failed above four given criteria, we just decided to keep the total UMI criterion for cell QC.
+
+```
+
+
+
+#### Initial filtering of low quality cells ####
+```{r warning=FALSE, message=FALSE}
+## Filtering based on # of genes, the alignment rate, # of reads, # of UMI
+## Sample 6
+dim(s6) 
+
+s6 <- s6[, rownames(s6_metrics[s6_metrics$genes >= gene_low_threshold &
+                                 s6_metrics$map_percentage > align_low_threshold_s6 & 
+                                 s6_metrics$map_percentage < align_high_threshold_s6 &
+                                 s6_metrics$log10reads > reads_low_threshold_s6 &
+                                 s6_metrics$log10reads < reads_high_threshold_s6 &
+                                 s6_metrics$log10UMI > log10UMI_low_threshold_s6 &
+                                 s6_metrics$log10UMI < log10UMI_high_threshold_s6, ])]
+dim(s6) 
+
+
+## Sample 7
+dim(s7) 
+
+s7 <- s7[, rownames(s7_metrics[s7_metrics$genes >= gene_low_threshold &
+                                 s7_metrics$map_percentage > align_low_threshold_s7 & 
+                                 s7_metrics$map_percentage < align_high_threshold_s7 &
+                                 s7_metrics$log10reads > reads_low_threshold_s7 &
+                                 s7_metrics$log10reads < reads_high_threshold_s7 &
+                                 s7_metrics$log10UMI > log10UMI_low_threshold_s7 &
+                                 s7_metrics$log10UMI < log10UMI_high_threshold_s7, ])]
+dim(s7)
+
+```
+
+
+
+#### Filtering cells based on the number of detected genes given the number of UMIs ####
+```{r warning=FALSE, message=FALSE}
+s6_metrics_after_filter1 <- s6_metrics[colnames(s6),]
+s7_metrics_after_filter1 <- s7_metrics[colnames(s7),]
+
+metrics_after_filter1 <- rbind(s6_metrics_after_filter1, s7_metrics_after_filter1)
+metrics_after_filter1$sample <- factor(metrics_after_filter1$sample,
+                                       levels=c("low_MOI", "high_MOI"))
+
+# Scatter plot
+ggplot(metrics_after_filter1, aes(x=log10UMI, y=genes, color=sample)) +
+  geom_point(alpha=0.8) +
+  labs(x="Number of UMIs (log10 transformed)", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+# No obvious outliers
+
+```
+
+
+
+#### Re-plot the # genes detected, mapping rate, # of UMI and reads, and mitochondrial gene ratio ####
+```{r warning=FALSE, message=FALSE}
+ggplot(metrics_after_filter1, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="MDCK Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+```
+
+
+
+#### Filtering out genes not detected in at least 3 cells ####
+```{r warning=FALSE, message=FALSE}
+s6 <- s6[rowSums(s6 != 0) >= 3, ]
+s7 <- s7[rowSums(s7 != 0) >= 3, ]
+
+dim(s6) 
+dim(s7)
+
+```
+
+
+
+#### Save QCed gene expression matrix ####
+```{r warning=FALSE, message=FALSE}
+## Sample 6
+save(s6, file="MDCK_lowMOI_QCed_gene-expression-matrix_s6.RData")
+
+## Sample 7
+save(s7, file="MDCK_highMOI_QCed_gene-expression-matrix_s7.RData")
+
+```
+
+
+
+###### Visualize of defective viral transcripts (DIP) and calculate their relative abundance ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(reshape)
+
+```
+
+#### Load all the DIP boundaries for scRNA-seq data ####
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_2017Feb/2018Summer/before_filtering/")
+
+A549_lowMOI_PB2_boundary5 <- read.csv("../S2/DIP_UMI_stats/AF389115.1_boundary_5prime-end.csv",
+                                      row.names=1)
+A549_lowMOI_PB2_boundary3 <- read.csv("../S2/DIP_UMI_stats/AF389115.1_boundary_3prime-end.csv",
+                                      row.names=1)
+A549_lowMOI_PB1_boundary5 <- read.csv("../S2/DIP_UMI_stats/AF389116.1_boundary_5prime-end.csv",
+                                      row.names=1)
+A549_lowMOI_PB1_boundary3 <- read.csv("../S2/DIP_UMI_stats/AF389116.1_boundary_3prime-end.csv",
+                                      row.names=1)
+A549_lowMOI_PA_boundary5 <- read.csv("../S2/DIP_UMI_stats/AF389117.1_boundary_5prime-end.csv",
+                                      row.names=1)
+A549_lowMOI_PA_boundary3 <- read.csv("../S2/DIP_UMI_stats/AF389117.1_boundary_3prime-end.csv",
+                                      row.names=1)
+
+A549_highMOI_PB2_boundary5 <- read.csv("../S3/DIP_UMI_stats/AF389115.1_boundary_5prime-end.csv",
+                                       row.names=1)
+A549_highMOI_PB2_boundary3 <- read.csv("../S3/DIP_UMI_stats/AF389115.1_boundary_3prime-end.csv",
+                                       row.names=1)
+A549_highMOI_PB1_boundary5 <- read.csv("../S3/DIP_UMI_stats/AF389116.1_boundary_5prime-end.csv",
+                                       row.names=1)
+A549_highMOI_PB1_boundary3 <- read.csv("../S3/DIP_UMI_stats/AF389116.1_boundary_3prime-end.csv",
+                                       row.names=1)
+A549_highMOI_PA_boundary5 <- read.csv("../S3/DIP_UMI_stats/AF389117.1_boundary_5prime-end.csv",
+                                      row.names=1)
+A549_highMOI_PA_boundary3 <- read.csv("../S3/DIP_UMI_stats/AF389117.1_boundary_3prime-end.csv",
+                                      row.names=1)
+
+MDCK_lowMOI_PB2_boundary5 <- read.csv("../S6/DIP_UMI_stats/AF389115.1_boundary_5prime-end.csv",
+                                      row.names=1)
+MDCK_lowMOI_PB2_boundary3 <- read.csv("../S6/DIP_UMI_stats/AF389115.1_boundary_3prime-end.csv",
+                                      row.names=1)
+MDCK_lowMOI_PB1_boundary5 <- read.csv("../S6/DIP_UMI_stats/AF389116.1_boundary_5prime-end.csv",
+                                      row.names=1)
+MDCK_lowMOI_PB1_boundary3 <- read.csv("../S6/DIP_UMI_stats/AF389116.1_boundary_3prime-end.csv",
+                                      row.names=1)
+MDCK_lowMOI_PA_boundary5 <- read.csv("../S6/DIP_UMI_stats/AF389117.1_boundary_5prime-end.csv",
+                                     row.names=1)
+MDCK_lowMOI_PA_boundary3 <- read.csv("../S6/DIP_UMI_stats/AF389117.1_boundary_3prime-end.csv",
+                                     row.names=1)
+
+MDCK_highMOI_PB2_boundary5 <- read.csv("../S7/DIP_UMI_stats/AF389115.1_boundary_5prime-end.csv",
+                                       row.names=1)
+MDCK_highMOI_PB2_boundary3 <- read.csv("../S7/DIP_UMI_stats/AF389115.1_boundary_3prime-end.csv",
+                                       row.names=1)
+MDCK_highMOI_PB1_boundary5 <- read.csv("../S7/DIP_UMI_stats/AF389116.1_boundary_5prime-end.csv",
+                                       row.names=1)
+MDCK_highMOI_PB1_boundary3 <- read.csv("../S7/DIP_UMI_stats/AF389116.1_boundary_3prime-end.csv",
+                                       row.names=1)
+MDCK_highMOI_PA_boundary5 <- read.csv("../S7/DIP_UMI_stats/AF389117.1_boundary_5prime-end.csv",
+                                      row.names=1)
+MDCK_highMOI_PA_boundary3 <- read.csv("../S7/DIP_UMI_stats/AF389117.1_boundary_3prime-end.csv",
+                                      row.names=1)
+
+
+## Load the info for QCed cell ids for single cell data ##
+load("../CellQC/A549/A549_lowMOI_QCed_gene-expression-matrix_s2.RData")
+load("../CellQC/A549/A549_highMOI_QCed_gene-expression-matrix_s3.RData")
+load("../CellQC/MDCK/MDCK_lowMOI_QCed_gene-expression-matrix_s6.RData")
+load("../CellQC/MDCK/MDCK_highMOI_QCed_gene-expression-matrix_s7.RData")
+
+
+## Check cells full of na in the sc data ##
+sum(A549_lowMOI_PB2_boundary5$X0 == "na")
+sum(A549_lowMOI_PB2_boundary3$X0 == "na")
+sum(A549_lowMOI_PB1_boundary5$X0 == "na")
+sum(A549_lowMOI_PB1_boundary3$X0 == "na")
+sum(A549_lowMOI_PA_boundary5$X0 == "na") 
+sum(A549_lowMOI_PA_boundary3$X0 == "na") 
+
+sum(A549_highMOI_PB2_boundary5$X0 == "na")
+sum(A549_highMOI_PB2_boundary3$X0 == "na")
+sum(A549_highMOI_PB1_boundary5$X0 == "na")
+sum(A549_highMOI_PB1_boundary3$X0 == "na")
+sum(A549_highMOI_PA_boundary5$X0 == "na") 
+sum(A549_highMOI_PA_boundary3$X0 == "na") 
+
+sum(MDCK_lowMOI_PB2_boundary5$X0 == "na")
+sum(MDCK_lowMOI_PB2_boundary3$X0 == "na")
+sum(MDCK_lowMOI_PB1_boundary5$X0 == "na")
+sum(MDCK_lowMOI_PB1_boundary3$X0 == "na")
+sum(MDCK_lowMOI_PA_boundary5$X0 == "na") 
+sum(MDCK_lowMOI_PA_boundary3$X0 == "na") 
+
+sum(MDCK_highMOI_PB2_boundary5$X0 == "na")
+sum(MDCK_highMOI_PB2_boundary3$X0 == "na")
+sum(MDCK_highMOI_PB1_boundary5$X0 == "na")
+sum(MDCK_highMOI_PB1_boundary3$X0 == "na")
+sum(MDCK_highMOI_PA_boundary5$X0 == "na") 
+sum(MDCK_highMOI_PA_boundary3$X0 == "na") 
+
+```
+
+
+
+#### Remove cells with no boundaries detected from each sc sample ####
+```{r warning=FALSE, message=FALSE}
+A549_lowMOI_PB2_boundary5 <- A549_lowMOI_PB2_boundary5[A549_lowMOI_PB2_boundary5$X0 != "na", ]
+A549_lowMOI_PB2_boundary3 <- A549_lowMOI_PB2_boundary3[A549_lowMOI_PB2_boundary3$X0 != "na", ]
+A549_lowMOI_PB1_boundary5 <- A549_lowMOI_PB1_boundary5[A549_lowMOI_PB1_boundary5$X0 != "na", ]
+A549_lowMOI_PB1_boundary3 <- A549_lowMOI_PB1_boundary3[A549_lowMOI_PB1_boundary3$X0 != "na", ]
+A549_lowMOI_PA_boundary5 <- A549_lowMOI_PA_boundary5[A549_lowMOI_PA_boundary5$X0 != "na", ]
+A549_lowMOI_PA_boundary3 <- A549_lowMOI_PA_boundary3[A549_lowMOI_PA_boundary3$X0 != "na", ]
+
+A549_highMOI_PB2_boundary5 <- A549_highMOI_PB2_boundary5[A549_highMOI_PB2_boundary5$X0 != "na", ]
+A549_highMOI_PB2_boundary3 <- A549_highMOI_PB2_boundary3[A549_highMOI_PB2_boundary3$X0 != "na", ]
+A549_highMOI_PB1_boundary5 <- A549_highMOI_PB1_boundary5[A549_highMOI_PB1_boundary5$X0 != "na", ]
+A549_highMOI_PB1_boundary3 <- A549_highMOI_PB1_boundary3[A549_highMOI_PB1_boundary3$X0 != "na", ]
+A549_highMOI_PA_boundary5 <- A549_highMOI_PA_boundary5[A549_highMOI_PA_boundary5$X0 != "na", ]
+A549_highMOI_PA_boundary3 <- A549_highMOI_PA_boundary3[A549_highMOI_PA_boundary3$X0 != "na", ]
+
+MDCK_lowMOI_PB2_boundary5 <- MDCK_lowMOI_PB2_boundary5[MDCK_lowMOI_PB2_boundary5$X0 != "na", ]
+MDCK_lowMOI_PB2_boundary3 <- MDCK_lowMOI_PB2_boundary3[MDCK_lowMOI_PB2_boundary3$X0 != "na", ]
+MDCK_lowMOI_PB1_boundary5 <- MDCK_lowMOI_PB1_boundary5[MDCK_lowMOI_PB1_boundary5$X0 != "na", ]
+MDCK_lowMOI_PB1_boundary3 <- MDCK_lowMOI_PB1_boundary3[MDCK_lowMOI_PB1_boundary3$X0 != "na", ]
+MDCK_lowMOI_PA_boundary5 <- MDCK_lowMOI_PA_boundary5[MDCK_lowMOI_PA_boundary5$X0 != "na", ]
+MDCK_lowMOI_PA_boundary3 <- MDCK_lowMOI_PA_boundary3[MDCK_lowMOI_PA_boundary3$X0 != "na", ]
+
+MDCK_highMOI_PB2_boundary5 <- MDCK_highMOI_PB2_boundary5[MDCK_highMOI_PB2_boundary5$X0 != "na", ]
+MDCK_highMOI_PB2_boundary3 <- MDCK_highMOI_PB2_boundary3[MDCK_highMOI_PB2_boundary3$X0 != "na", ]
+MDCK_highMOI_PB1_boundary5 <- MDCK_highMOI_PB1_boundary5[MDCK_highMOI_PB1_boundary5$X0 != "na", ]
+MDCK_highMOI_PB1_boundary3 <- MDCK_highMOI_PB1_boundary3[MDCK_highMOI_PB1_boundary3$X0 != "na", ]
+MDCK_highMOI_PA_boundary5 <- MDCK_highMOI_PA_boundary5[MDCK_highMOI_PA_boundary5$X0 != "na", ]
+MDCK_highMOI_PA_boundary3 <- MDCK_highMOI_PA_boundary3[MDCK_highMOI_PA_boundary3$X0 != "na", ]
+
+```
+
+
+
+#### Get the paired boundaries (5' and 3') for three polymerases ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+## A549 low MOI (S2) ##
+# PB2
+A549_lowMOI_PB2_boundary3 <- A549_lowMOI_PB2_boundary3[rownames(A549_lowMOI_PB2_boundary5), ]
+A549_lowMOI_PB2_boundary <- list()
+for(i in 1:nrow(A549_lowMOI_PB2_boundary5)) {
+  boundary5 <- data.frame(t(A549_lowMOI_PB2_boundary5[i, A549_lowMOI_PB2_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_lowMOI_PB2_boundary3[i, A549_lowMOI_PB2_boundary3[i, ] != "na"]))
+  A549_lowMOI_PB2_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(A549_lowMOI_PB2_boundary5)[i])
+  colnames(A549_lowMOI_PB2_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- A549_lowMOI_PB2_boundary[[1]]
+A549_lowMOI_PB2_boundary[[1]] <- A549_lowMOI_PB2_boundary[[2]]
+A549_lowMOI_PB2_boundary[[2]] <- tmp_1
+A549_lowMOI_PB2_boundary_df <- do.call("rbind", A549_lowMOI_PB2_boundary)
+A549_lowMOI_PB2_boundary_df$start <- as.numeric(as.character(A549_lowMOI_PB2_boundary_df$start))
+A549_lowMOI_PB2_boundary_df$stop <- as.numeric(as.character(A549_lowMOI_PB2_boundary_df$stop))
+save(A549_lowMOI_PB2_boundary_df, file="A549_lowMOI_S2_PB2_boundaries.RData")
+dim(unique(A549_lowMOI_PB2_boundary_df[,1:2])) 
+
+# PB1
+A549_lowMOI_PB1_boundary3 <- A549_lowMOI_PB1_boundary3[rownames(A549_lowMOI_PB1_boundary5), ]
+A549_lowMOI_PB1_boundary <- list()
+for(i in 1:nrow(A549_lowMOI_PB1_boundary5)) {
+  boundary5 <- data.frame(t(A549_lowMOI_PB1_boundary5[i, A549_lowMOI_PB1_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_lowMOI_PB1_boundary3[i, A549_lowMOI_PB1_boundary3[i, ] != "na"]))
+  A549_lowMOI_PB1_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(A549_lowMOI_PB1_boundary5)[i])
+  colnames(A549_lowMOI_PB1_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- A549_lowMOI_PB1_boundary[[1]]
+A549_lowMOI_PB1_boundary[[1]] <- A549_lowMOI_PB1_boundary[[12]]
+A549_lowMOI_PB1_boundary[[12]] <- tmp_1
+A549_lowMOI_PB1_boundary_df <- do.call("rbind", A549_lowMOI_PB1_boundary)
+A549_lowMOI_PB1_boundary_df$start <- as.numeric(as.character(A549_lowMOI_PB1_boundary_df$start))
+A549_lowMOI_PB1_boundary_df$stop <- as.numeric(as.character(A549_lowMOI_PB1_boundary_df$stop))
+save(A549_lowMOI_PB1_boundary_df, file="A549_lowMOI_S2_PB1_boundaries.RData")
+dim(unique(A549_lowMOI_PB1_boundary_df[,1:2])) 
+
+# PA
+A549_lowMOI_PA_boundary3 <- A549_lowMOI_PA_boundary3[rownames(A549_lowMOI_PA_boundary5), ]
+A549_lowMOI_PA_boundary <- list()
+for(i in 1:nrow(A549_lowMOI_PA_boundary5)) {
+  boundary5 <- data.frame(t(A549_lowMOI_PA_boundary5[i, A549_lowMOI_PA_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_lowMOI_PA_boundary3[i, A549_lowMOI_PA_boundary3[i, ] != "na"]))
+  A549_lowMOI_PA_boundary[[i]] <- data.frame("start"=boundary5, 
+                                             "stop"=boundary3,
+                                             "cell"=rownames(A549_lowMOI_PA_boundary5)[i])
+  colnames(A549_lowMOI_PA_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- A549_lowMOI_PA_boundary[[1]]
+A549_lowMOI_PA_boundary[[1]] <- A549_lowMOI_PA_boundary[[4]]
+A549_lowMOI_PA_boundary[[4]] <- tmp_1
+A549_lowMOI_PA_boundary_df <- do.call("rbind", A549_lowMOI_PA_boundary)
+A549_lowMOI_PA_boundary_df$start <- as.numeric(as.character(A549_lowMOI_PA_boundary_df$start))
+A549_lowMOI_PA_boundary_df$stop <- as.numeric(as.character(A549_lowMOI_PA_boundary_df$stop))
+save(A549_lowMOI_PA_boundary_df, file="A549_lowMOI_S2_PA_boundaries.RData")
+dim(unique(A549_lowMOI_PA_boundary_df[,1:2])) 
+
+
+## A549 high MOI (S3) ##
+# PB2
+A549_highMOI_PB2_boundary3 <- A549_highMOI_PB2_boundary3[rownames(A549_highMOI_PB2_boundary5), ]
+A549_highMOI_PB2_boundary <- list()
+for(i in 1:nrow(A549_highMOI_PB2_boundary5)) {
+  boundary5 <- data.frame(t(A549_highMOI_PB2_boundary5[i, A549_highMOI_PB2_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_highMOI_PB2_boundary3[i, A549_highMOI_PB2_boundary3[i, ] != "na"]))
+  A549_highMOI_PB2_boundary[[i]] <- data.frame("start"=boundary5, 
+                                               "stop"=boundary3,
+                                               "cell"=rownames(A549_highMOI_PB2_boundary5)[i])
+  colnames(A549_highMOI_PB2_boundary[[i]])[1:2] <- c("start", "stop")
+}
+A549_highMOI_PB2_boundary_df <- do.call("rbind", A549_highMOI_PB2_boundary)
+A549_highMOI_PB2_boundary_df$start <- as.numeric(as.character(A549_highMOI_PB2_boundary_df$start))
+A549_highMOI_PB2_boundary_df$stop <- as.numeric(as.character(A549_highMOI_PB2_boundary_df$stop))
+save(A549_highMOI_PB2_boundary_df, file="A549_highMOI_S3_PB2_boundaries.RData")
+dim(unique(A549_highMOI_PB2_boundary_df[,1:2])) 
+
+# PB1
+A549_highMOI_PB1_boundary3 <- A549_highMOI_PB1_boundary3[rownames(A549_highMOI_PB1_boundary5), ]
+A549_highMOI_PB1_boundary <- list()
+for(i in 1:nrow(A549_highMOI_PB1_boundary5)) {
+  boundary5 <- data.frame(t(A549_highMOI_PB1_boundary5[i, A549_highMOI_PB1_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_highMOI_PB1_boundary3[i, A549_highMOI_PB1_boundary3[i, ] != "na"]))
+  A549_highMOI_PB1_boundary[[i]] <- data.frame("start"=boundary5, 
+                                               "stop"=boundary3,
+                                               "cell"=rownames(A549_highMOI_PB1_boundary5)[i])
+  colnames(A549_highMOI_PB1_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- A549_highMOI_PB1_boundary[[1]]
+A549_highMOI_PB1_boundary[[1]] <- A549_highMOI_PB1_boundary[[5]]
+A549_highMOI_PB1_boundary[[5]] <- tmp_1
+A549_highMOI_PB1_boundary_df <- do.call("rbind", A549_highMOI_PB1_boundary)
+A549_highMOI_PB1_boundary_df$start <- as.numeric(as.character(A549_highMOI_PB1_boundary_df$start))
+A549_highMOI_PB1_boundary_df$stop <- as.numeric(as.character(A549_highMOI_PB1_boundary_df$stop))
+save(A549_highMOI_PB1_boundary_df, file="A549_highMOI_S3_PB1_boundaries.RData")
+dim(unique(A549_highMOI_PB1_boundary_df[,1:2])) 
+
+# PA
+A549_highMOI_PA_boundary3 <- A549_highMOI_PA_boundary3[rownames(A549_highMOI_PA_boundary5), ]
+A549_highMOI_PA_boundary <- list()
+for(i in 1:nrow(A549_highMOI_PA_boundary5)) {
+  boundary5 <- data.frame(t(A549_highMOI_PA_boundary5[i, A549_highMOI_PA_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(A549_highMOI_PA_boundary3[i, A549_highMOI_PA_boundary3[i, ] != "na"]))
+  A549_highMOI_PA_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(A549_highMOI_PA_boundary5)[i])
+  colnames(A549_highMOI_PA_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- A549_highMOI_PA_boundary[[1]]
+A549_highMOI_PA_boundary[[1]] <- A549_highMOI_PA_boundary[[2]]
+A549_highMOI_PA_boundary[[2]] <- tmp_1
+A549_highMOI_PA_boundary_df <- do.call("rbind", A549_highMOI_PA_boundary)
+A549_highMOI_PA_boundary_df$start <- as.numeric(as.character(A549_highMOI_PA_boundary_df$start))
+A549_highMOI_PA_boundary_df$stop <- as.numeric(as.character(A549_highMOI_PA_boundary_df$stop))
+save(A549_highMOI_PA_boundary_df, file="A549_highMOI_S3_PA_boundaries.RData")
+dim(unique(A549_highMOI_PA_boundary_df[,1:2])) 
+
+
+## MDCK low MOI (S6) ##
+# PB2
+MDCK_lowMOI_PB2_boundary3 <- MDCK_lowMOI_PB2_boundary3[rownames(MDCK_lowMOI_PB2_boundary5), ]
+MDCK_lowMOI_PB2_boundary <- list()
+for(i in 1:nrow(MDCK_lowMOI_PB2_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_lowMOI_PB2_boundary5[i, MDCK_lowMOI_PB2_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_lowMOI_PB2_boundary3[i, MDCK_lowMOI_PB2_boundary3[i, ] != "na"]))
+  MDCK_lowMOI_PB2_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(MDCK_lowMOI_PB2_boundary5)[i])
+  colnames(MDCK_lowMOI_PB2_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- MDCK_lowMOI_PB2_boundary[[1]]
+MDCK_lowMOI_PB2_boundary[[1]] <- MDCK_lowMOI_PB2_boundary[[16]]
+MDCK_lowMOI_PB2_boundary[[16]] <- tmp_1
+MDCK_lowMOI_PB2_boundary_df <- do.call("rbind", MDCK_lowMOI_PB2_boundary)
+MDCK_lowMOI_PB2_boundary_df$start <- as.numeric(as.character(MDCK_lowMOI_PB2_boundary_df$start))
+MDCK_lowMOI_PB2_boundary_df$stop <- as.numeric(as.character(MDCK_lowMOI_PB2_boundary_df$stop))
+save(MDCK_lowMOI_PB2_boundary_df, file="MDCK_lowMOI_S6_PB2_boundaries.RData")
+dim(unique(MDCK_lowMOI_PB2_boundary_df[,1:2])) 
+
+# PB1
+MDCK_lowMOI_PB1_boundary3 <- MDCK_lowMOI_PB1_boundary3[rownames(MDCK_lowMOI_PB1_boundary5), ]
+MDCK_lowMOI_PB1_boundary <- list()
+for(i in 1:nrow(MDCK_lowMOI_PB1_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_lowMOI_PB1_boundary5[i, MDCK_lowMOI_PB1_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_lowMOI_PB1_boundary3[i, MDCK_lowMOI_PB1_boundary3[i, ] != "na"]))
+  MDCK_lowMOI_PB1_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(MDCK_lowMOI_PB1_boundary5)[i])
+  colnames(MDCK_lowMOI_PB1_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- MDCK_lowMOI_PB1_boundary[[1]]
+MDCK_lowMOI_PB1_boundary[[1]] <- MDCK_lowMOI_PB1_boundary[[9]]
+MDCK_lowMOI_PB1_boundary[[9]] <- tmp_1
+MDCK_lowMOI_PB1_boundary_df <- do.call("rbind", MDCK_lowMOI_PB1_boundary)
+MDCK_lowMOI_PB1_boundary_df$start <- as.numeric(as.character(MDCK_lowMOI_PB1_boundary_df$start))
+MDCK_lowMOI_PB1_boundary_df$stop <- as.numeric(as.character(MDCK_lowMOI_PB1_boundary_df$stop))
+save(MDCK_lowMOI_PB1_boundary_df, file="MDCK_lowMOI_S6_PB1_boundaries.RData")
+dim(unique(MDCK_lowMOI_PB1_boundary_df[,1:2])) 
+
+# PA
+MDCK_lowMOI_PA_boundary3 <- MDCK_lowMOI_PA_boundary3[rownames(MDCK_lowMOI_PA_boundary5), ]
+MDCK_lowMOI_PA_boundary <- list()
+for(i in 1:nrow(MDCK_lowMOI_PA_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_lowMOI_PA_boundary5[i, MDCK_lowMOI_PA_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_lowMOI_PA_boundary3[i, MDCK_lowMOI_PA_boundary3[i, ] != "na"]))
+  MDCK_lowMOI_PA_boundary[[i]] <- data.frame("start"=boundary5, 
+                                             "stop"=boundary3,
+                                             "cell"=rownames(MDCK_lowMOI_PA_boundary5)[i])
+  colnames(MDCK_lowMOI_PA_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- MDCK_lowMOI_PA_boundary[[1]]
+MDCK_lowMOI_PA_boundary[[1]] <- MDCK_lowMOI_PA_boundary[[3]]
+MDCK_lowMOI_PA_boundary[[3]] <- tmp_1
+MDCK_lowMOI_PA_boundary_df <- do.call("rbind", MDCK_lowMOI_PA_boundary)
+MDCK_lowMOI_PA_boundary_df$start <- as.numeric(as.character(MDCK_lowMOI_PA_boundary_df$start))
+MDCK_lowMOI_PA_boundary_df$stop <- as.numeric(as.character(MDCK_lowMOI_PA_boundary_df$stop))
+save(MDCK_lowMOI_PA_boundary_df, file="MDCK_lowMOI_S6_PA_boundaries.RData")
+dim(unique(MDCK_lowMOI_PA_boundary_df[,1:2])) 
+
+
+## MDCK high MOI (S7) ##
+# PB2
+MDCK_highMOI_PB2_boundary3 <- MDCK_highMOI_PB2_boundary3[rownames(MDCK_highMOI_PB2_boundary5), ]
+MDCK_highMOI_PB2_boundary <- list()
+for(i in 1:nrow(MDCK_highMOI_PB2_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_highMOI_PB2_boundary5[i, MDCK_highMOI_PB2_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_highMOI_PB2_boundary3[i, MDCK_highMOI_PB2_boundary3[i, ] != "na"]))
+  MDCK_highMOI_PB2_boundary[[i]] <- data.frame("start"=boundary5, 
+                                               "stop"=boundary3,
+                                               "cell"=rownames(MDCK_highMOI_PB2_boundary5)[i])
+  colnames(MDCK_highMOI_PB2_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- MDCK_highMOI_PB2_boundary[[1]]
+MDCK_highMOI_PB2_boundary[[1]] <- MDCK_highMOI_PB2_boundary[[3]]
+MDCK_highMOI_PB2_boundary[[3]] <- tmp_1
+MDCK_highMOI_PB2_boundary_df <- do.call("rbind", MDCK_highMOI_PB2_boundary)
+MDCK_highMOI_PB2_boundary_df$start <- as.numeric(as.character(MDCK_highMOI_PB2_boundary_df$start))
+MDCK_highMOI_PB2_boundary_df$stop <- as.numeric(as.character(MDCK_highMOI_PB2_boundary_df$stop))
+save(MDCK_highMOI_PB2_boundary_df, file="MDCK_highMOI_S7_PB2_boundaries.RData")
+dim(unique(MDCK_highMOI_PB2_boundary_df[,1:2])) 
+
+# PB1
+MDCK_highMOI_PB1_boundary3 <- MDCK_highMOI_PB1_boundary3[rownames(MDCK_highMOI_PB1_boundary5), ]
+MDCK_highMOI_PB1_boundary <- list()
+for(i in 1:nrow(MDCK_highMOI_PB1_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_highMOI_PB1_boundary5[i, MDCK_highMOI_PB1_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_highMOI_PB1_boundary3[i, MDCK_highMOI_PB1_boundary3[i, ] != "na"]))
+  MDCK_highMOI_PB1_boundary[[i]] <- data.frame("start"=boundary5, 
+                                               "stop"=boundary3,
+                                               "cell"=rownames(MDCK_highMOI_PB1_boundary5)[i])
+  colnames(MDCK_highMOI_PB1_boundary[[i]])[1:2] <- c("start", "stop")
+}
+MDCK_highMOI_PB1_boundary_df <- do.call("rbind", MDCK_highMOI_PB1_boundary)
+MDCK_highMOI_PB1_boundary_df$start <- as.numeric(as.character(MDCK_highMOI_PB1_boundary_df$start))
+MDCK_highMOI_PB1_boundary_df$stop <- as.numeric(as.character(MDCK_highMOI_PB1_boundary_df$stop))
+save(MDCK_highMOI_PB1_boundary_df, file="MDCK_highMOI_S7_PB1_boundaries.RData")
+dim(unique(MDCK_highMOI_PB1_boundary_df[,1:2])) 
+
+# PA
+MDCK_highMOI_PA_boundary3 <- MDCK_highMOI_PA_boundary3[rownames(MDCK_highMOI_PA_boundary5), ]
+MDCK_highMOI_PA_boundary <- list()
+for(i in 1:nrow(MDCK_highMOI_PA_boundary5)) {
+  boundary5 <- data.frame(t(MDCK_highMOI_PA_boundary5[i, MDCK_highMOI_PA_boundary5[i, ] != "na"]))
+  boundary3 <- data.frame(t(MDCK_highMOI_PA_boundary3[i, MDCK_highMOI_PA_boundary3[i, ] != "na"]))
+  MDCK_highMOI_PA_boundary[[i]] <- data.frame("start"=boundary5, 
+                                              "stop"=boundary3,
+                                              "cell"=rownames(MDCK_highMOI_PA_boundary5)[i])
+  colnames(MDCK_highMOI_PA_boundary[[i]])[1:2] <- c("start", "stop")
+}
+tmp_1 <- MDCK_highMOI_PA_boundary[[1]]
+MDCK_highMOI_PA_boundary[[1]] <- MDCK_highMOI_PA_boundary[[4]]
+MDCK_highMOI_PA_boundary[[4]] <- tmp_1
+MDCK_highMOI_PA_boundary_df <- do.call("rbind", MDCK_highMOI_PA_boundary)
+MDCK_highMOI_PA_boundary_df$start <- as.numeric(as.character(MDCK_highMOI_PA_boundary_df$start))
+MDCK_highMOI_PA_boundary_df$stop <- as.numeric(as.character(MDCK_highMOI_PA_boundary_df$stop))
+save(MDCK_highMOI_PA_boundary_df, file="MDCK_highMOI_S7_PA_boundaries.RData")
+dim(unique(MDCK_highMOI_PA_boundary_df[,1:2])) 
+
+```
+
+
+
+#### Extract the boundary combinations for cellls passed QC ####
+```{r warning=FALSE, message=FALSE}
+s2_cells <- colnames(s2)
+s3_cells <- colnames(s3)
+s6_cells <- colnames(s6)
+s7_cells <- colnames(s7)
+
+
+## A549 low MOI
+A549_lowMOI_PB2_boundary_df$cell <- as.character(A549_lowMOI_PB2_boundary_df$cell)
+A549_lowMOI_PB2_boundary_df_QCC <- A549_lowMOI_PB2_boundary_df[A549_lowMOI_PB2_boundary_df$cell %in% s2_cells, ]
+length(unique(A549_lowMOI_PB2_boundary_df_QCC$cell)) 
+
+A549_lowMOI_PB1_boundary_df$cell <- as.character(A549_lowMOI_PB1_boundary_df$cell)
+A549_lowMOI_PB1_boundary_df_QCC <- A549_lowMOI_PB1_boundary_df[A549_lowMOI_PB1_boundary_df$cell %in% s2_cells, ]
+length(unique(A549_lowMOI_PB1_boundary_df_QCC$cell)) 
+
+A549_lowMOI_PA_boundary_df$cell <- as.character(A549_lowMOI_PA_boundary_df$cell)
+A549_lowMOI_PA_boundary_df_QCC <- A549_lowMOI_PA_boundary_df[A549_lowMOI_PA_boundary_df$cell %in% s2_cells, ]
+length(unique(A549_lowMOI_PA_boundary_df_QCC$cell)) 
+
+
+## A549 high MOI
+A549_highMOI_PB2_boundary_df$cell <- as.character(A549_highMOI_PB2_boundary_df$cell)
+A549_highMOI_PB2_boundary_df_QCC <- A549_highMOI_PB2_boundary_df[A549_highMOI_PB2_boundary_df$cell %in% s3_cells, ]
+length(unique(A549_highMOI_PB2_boundary_df_QCC$cell)) 
+
+A549_highMOI_PB1_boundary_df$cell <- as.character(A549_highMOI_PB1_boundary_df$cell)
+A549_highMOI_PB1_boundary_df_QCC <- A549_highMOI_PB1_boundary_df[A549_highMOI_PB1_boundary_df$cell %in% s3_cells, ]
+length(unique(A549_highMOI_PB1_boundary_df_QCC$cell)) 
+
+A549_highMOI_PA_boundary_df$cell <- as.character(A549_highMOI_PA_boundary_df$cell)
+A549_highMOI_PA_boundary_df_QCC <- A549_highMOI_PA_boundary_df[A549_highMOI_PA_boundary_df$cell %in% s3_cells, ]
+length(unique(A549_highMOI_PA_boundary_df_QCC$cell)) 
+
+
+## MDCK low MOI
+MDCK_lowMOI_PB2_boundary_df$cell <- as.character(MDCK_lowMOI_PB2_boundary_df$cell)
+MDCK_lowMOI_PB2_boundary_df_QCC <- MDCK_lowMOI_PB2_boundary_df[MDCK_lowMOI_PB2_boundary_df$cell %in% s6_cells, ]
+length(unique(MDCK_lowMOI_PB2_boundary_df_QCC$cell)) 
+
+MDCK_lowMOI_PB1_boundary_df$cell <- as.character(MDCK_lowMOI_PB1_boundary_df$cell)
+MDCK_lowMOI_PB1_boundary_df_QCC <- MDCK_lowMOI_PB1_boundary_df[MDCK_lowMOI_PB1_boundary_df$cell %in% s6_cells, ]
+length(unique(MDCK_lowMOI_PB1_boundary_df_QCC$cell)) 
+
+MDCK_lowMOI_PA_boundary_df$cell <- as.character(MDCK_lowMOI_PA_boundary_df$cell)
+MDCK_lowMOI_PA_boundary_df_QCC <- MDCK_lowMOI_PA_boundary_df[MDCK_lowMOI_PA_boundary_df$cell %in% s6_cells, ]
+length(unique(MDCK_lowMOI_PA_boundary_df_QCC$cell)) 
+
+
+## MDCK high MOI
+MDCK_highMOI_PB2_boundary_df$cell <- as.character(MDCK_highMOI_PB2_boundary_df$cell)
+MDCK_highMOI_PB2_boundary_df_QCC <- MDCK_highMOI_PB2_boundary_df[MDCK_highMOI_PB2_boundary_df$cell %in% s7_cells, ]
+length(unique(MDCK_highMOI_PB2_boundary_df_QCC$cell)) 
+
+MDCK_highMOI_PB1_boundary_df$cell <- as.character(MDCK_highMOI_PB1_boundary_df$cell)
+MDCK_highMOI_PB1_boundary_df_QCC <- MDCK_highMOI_PB1_boundary_df[MDCK_highMOI_PB1_boundary_df$cell %in% s7_cells, ]
+length(unique(MDCK_highMOI_PB1_boundary_df_QCC$cell)) 
+
+MDCK_highMOI_PA_boundary_df$cell <- as.character(MDCK_highMOI_PA_boundary_df$cell)
+MDCK_highMOI_PA_boundary_df_QCC <- MDCK_highMOI_PA_boundary_df[MDCK_highMOI_PA_boundary_df$cell %in% s7_cells, ]
+length(unique(MDCK_highMOI_PA_boundary_df_QCC$cell))
+
+
+A549_lowMOI_PB2_boundary_df <- A549_lowMOI_PB2_boundary_df_QCC
+A549_lowMOI_PB1_boundary_df <- A549_lowMOI_PB1_boundary_df_QCC
+A549_lowMOI_PA_boundary_df <- A549_lowMOI_PA_boundary_df_QCC
+
+A549_highMOI_PB2_boundary_df <- A549_highMOI_PB2_boundary_df_QCC
+A549_highMOI_PB1_boundary_df <- A549_highMOI_PB1_boundary_df_QCC
+A549_highMOI_PA_boundary_df <- A549_highMOI_PA_boundary_df_QCC
+
+MDCK_lowMOI_PB2_boundary_df <- MDCK_lowMOI_PB2_boundary_df_QCC
+MDCK_lowMOI_PB1_boundary_df <- MDCK_lowMOI_PB1_boundary_df_QCC
+MDCK_lowMOI_PA_boundary_df <- MDCK_lowMOI_PA_boundary_df_QCC
+
+MDCK_highMOI_PB2_boundary_df <- MDCK_highMOI_PB2_boundary_df_QCC
+MDCK_highMOI_PB1_boundary_df <- MDCK_highMOI_PB1_boundary_df_QCC
+MDCK_highMOI_PA_boundary_df <- MDCK_highMOI_PA_boundary_df_QCC
+
+
+# double check the accuracy of the extraction
+sum(!unique(A549_lowMOI_PB2_boundary_df$cell) %in% s2_cells)
+sum(!unique(A549_lowMOI_PB1_boundary_df$cell) %in% s2_cells)
+sum(!unique(A549_lowMOI_PA_boundary_df$cell) %in% s2_cells) 
+
+sum(!unique(A549_highMOI_PB2_boundary_df$cell) %in% s3_cells)
+sum(!unique(A549_highMOI_PB1_boundary_df$cell) %in% s3_cells)
+sum(!unique(A549_highMOI_PA_boundary_df$cell) %in% s3_cells) 
+
+sum(!unique(MDCK_lowMOI_PB2_boundary_df$cell) %in% s6_cells)
+sum(!unique(MDCK_lowMOI_PB1_boundary_df$cell) %in% s6_cells)
+sum(!unique(MDCK_lowMOI_PA_boundary_df$cell) %in% s6_cells) 
+
+sum(!unique(MDCK_highMOI_PB2_boundary_df$cell) %in% s7_cells)
+sum(!unique(MDCK_highMOI_PB1_boundary_df$cell) %in% s7_cells)
+sum(!unique(MDCK_highMOI_PA_boundary_df$cell) %in% s7_cells) 
+
+```
+
+
+
+#### Obtain the frequency table for each sample ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+## A549 low MOI ##
+A549_lowMOI_PB2_boundary_df$start_stop <- paste(A549_lowMOI_PB2_boundary_df$start,
+                                                A549_lowMOI_PB2_boundary_df$stop,
+                                                sep="-")
+A549_lowMOI_PB1_boundary_df$start_stop <- paste(A549_lowMOI_PB1_boundary_df$start,
+                                                A549_lowMOI_PB1_boundary_df$stop,
+                                                sep="-")
+A549_lowMOI_PA_boundary_df$start_stop <- paste(A549_lowMOI_PA_boundary_df$start,
+                                               A549_lowMOI_PA_boundary_df$stop,
+                                               sep="-")
+
+A549_lowMOI_PB2_boundary_fq <- as.data.frame(table(A549_lowMOI_PB2_boundary_df$start_stop))
+A549_lowMOI_PB1_boundary_fq <- as.data.frame(table(A549_lowMOI_PB1_boundary_df$start_stop))
+A549_lowMOI_PA_boundary_fq <- as.data.frame(table(A549_lowMOI_PA_boundary_df$start_stop))
+
+colnames(A549_lowMOI_PB2_boundary_fq) <- c("boundary_comb", "freq")
+colnames(A549_lowMOI_PB1_boundary_fq) <- c("boundary_comb", "freq")
+colnames(A549_lowMOI_PA_boundary_fq) <- c("boundary_comb", "freq")
+
+write.csv(A549_lowMOI_PB2_boundary_fq, 
+          file="Boundaries_frequency_table/A549_lowMOI_PB2_boundary_freq.csv")
+write.csv(A549_lowMOI_PB1_boundary_fq, 
+          file="Boundaries_frequency_table/A549_lowMOI_PB1_boundary_freq.csv")
+write.csv(A549_lowMOI_PA_boundary_fq, 
+          file="Boundaries_frequency_table/A549_lowMOI_PA_boundary_freq.csv")
+
+
+## A549 high MOI ##
+A549_highMOI_PB2_boundary_df$start_stop <- paste(A549_highMOI_PB2_boundary_df$start,
+                                                 A549_highMOI_PB2_boundary_df$stop,
+                                                 sep="-")
+A549_highMOI_PB1_boundary_df$start_stop <- paste(A549_highMOI_PB1_boundary_df$start,
+                                                 A549_highMOI_PB1_boundary_df$stop,
+                                                 sep="-")
+A549_highMOI_PA_boundary_df$start_stop <- paste(A549_highMOI_PA_boundary_df$start,
+                                                A549_highMOI_PA_boundary_df$stop,
+                                                sep="-")
+
+A549_highMOI_PB2_boundary_fq <- as.data.frame(table(A549_highMOI_PB2_boundary_df$start_stop))
+A549_highMOI_PB1_boundary_fq <- as.data.frame(table(A549_highMOI_PB1_boundary_df$start_stop))
+A549_highMOI_PA_boundary_fq <- as.data.frame(table(A549_highMOI_PA_boundary_df$start_stop))
+
+colnames(A549_highMOI_PB2_boundary_fq) <- c("boundary_comb", "freq")
+colnames(A549_highMOI_PB1_boundary_fq) <- c("boundary_comb", "freq")
+colnames(A549_highMOI_PA_boundary_fq) <- c("boundary_comb", "freq")
+
+write.csv(A549_highMOI_PB2_boundary_fq, 
+          file="Boundaries_frequency_table/A549_highMOI_PB2_boundary_freq.csv")
+write.csv(A549_highMOI_PB1_boundary_fq, 
+          file="Boundaries_frequency_table/A549_highMOI_PB1_boundary_freq.csv")
+write.csv(A549_highMOI_PA_boundary_fq, 
+          file="Boundaries_frequency_table/A549_highMOI_PA_boundary_freq.csv")
+
+
+## MDCK low MOI ##
+MDCK_lowMOI_PB2_boundary_df$start_stop <- paste(MDCK_lowMOI_PB2_boundary_df$start,
+                                                MDCK_lowMOI_PB2_boundary_df$stop,
+                                                sep="-")
+MDCK_lowMOI_PB1_boundary_df$start_stop <- paste(MDCK_lowMOI_PB1_boundary_df$start,
+                                                MDCK_lowMOI_PB1_boundary_df$stop,
+                                                sep="-")
+MDCK_lowMOI_PA_boundary_df$start_stop <- paste(MDCK_lowMOI_PA_boundary_df$start,
+                                               MDCK_lowMOI_PA_boundary_df$stop,
+                                               sep="-")
+
+MDCK_lowMOI_PB2_boundary_fq <- as.data.frame(table(MDCK_lowMOI_PB2_boundary_df$start_stop))
+MDCK_lowMOI_PB1_boundary_fq <- as.data.frame(table(MDCK_lowMOI_PB1_boundary_df$start_stop))
+MDCK_lowMOI_PA_boundary_fq <- as.data.frame(table(MDCK_lowMOI_PA_boundary_df$start_stop))
+
+colnames(MDCK_lowMOI_PB2_boundary_fq) <- c("boundary_comb", "freq")
+colnames(MDCK_lowMOI_PB1_boundary_fq) <- c("boundary_comb", "freq")
+colnames(MDCK_lowMOI_PA_boundary_fq) <- c("boundary_comb", "freq")
+
+write.csv(MDCK_lowMOI_PB2_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_lowMOI_PB2_boundary_freq.csv")
+write.csv(MDCK_lowMOI_PB1_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_lowMOI_PB1_boundary_freq.csv")
+write.csv(MDCK_lowMOI_PA_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_lowMOI_PA_boundary_freq.csv")
+
+
+## MDCK high MOI ##
+MDCK_highMOI_PB2_boundary_df$start_stop <- paste(MDCK_highMOI_PB2_boundary_df$start,
+                                                 MDCK_highMOI_PB2_boundary_df$stop,
+                                                 sep="-")
+MDCK_highMOI_PB1_boundary_df$start_stop <- paste(MDCK_highMOI_PB1_boundary_df$start,
+                                                 MDCK_highMOI_PB1_boundary_df$stop,
+                                                 sep="-")
+MDCK_highMOI_PA_boundary_df$start_stop <- paste(MDCK_highMOI_PA_boundary_df$start,
+                                                MDCK_highMOI_PA_boundary_df$stop,
+                                                sep="-")
+
+MDCK_highMOI_PB2_boundary_fq <- as.data.frame(table(MDCK_highMOI_PB2_boundary_df$start_stop))
+MDCK_highMOI_PB1_boundary_fq <- as.data.frame(table(MDCK_highMOI_PB1_boundary_df$start_stop))
+MDCK_highMOI_PA_boundary_fq <- as.data.frame(table(MDCK_highMOI_PA_boundary_df$start_stop))
+
+colnames(MDCK_highMOI_PB2_boundary_fq) <- c("boundary_comb", "freq")
+colnames(MDCK_highMOI_PB1_boundary_fq) <- c("boundary_comb", "freq")
+colnames(MDCK_highMOI_PA_boundary_fq) <- c("boundary_comb", "freq")
+
+write.csv(MDCK_highMOI_PB2_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_highMOI_PB2_boundary_freq.csv")
+write.csv(MDCK_highMOI_PB1_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_highMOI_PB1_boundary_freq.csv")
+write.csv(MDCK_highMOI_PA_boundary_fq, 
+          file="Boundaries_frequency_table/MDCK_highMOI_PA_boundary_freq.csv")
+
+```
+
+
+
+#### Group boundary coordinates together (within 10nt at both boundaries) and filter out grouped coordinates occurred less than 10 times in each sample ####
+```{r warning=FALSE, message=FALSE}
+# Use python script (DI_boundary_grouping.py)
+
+```
+
+
+
+#### Obtain the frequency of occurrence of each DI per sample and the relative abundance of each DI and visualize to identify dominant species ####
+```{r warning=FALSE, message=FALSE}
+# Make sure the library "dplyr" is un-loaded.
+library(plyr)
+setwd("~/Documents/10XGenomics_2017Feb/2018Summer/after_filtering/Plots/")
+
+### A549 low MOI ###
+## Load data
+boundary_criteria <- read.csv("../Filtered_Grouped_DI_boundaries_S2_A549_lowMOI.csv")
+
+## Filter the single cell data
+PB2_boundary_comb <- A549_lowMOI_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+
+PB1_boundary_comb <- A549_lowMOI_PB1_boundary_df
+PB1_boundary_comb$boundary_comb <- paste(PB1_boundary_comb$start, 
+                                         PB1_boundary_comb$stop, sep="^")
+
+PA_boundary_comb <- A549_lowMOI_PA_boundary_df
+PA_boundary_comb$boundary_comb <- paste(PA_boundary_comb$start, 
+                                        PA_boundary_comb$stop, sep="^")
+
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+PB1_boundary_comb_filtered <- merge(PB1_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB1", ])
+PA_boundary_comb_filtered <- merge(PA_boundary_comb, 
+                                   boundary_criteria[boundary_criteria$seg == "PA", ])
+
+## Extract the information about the frequency of a boundary combination in the dataset
+PB2_filtered_freq <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PB1_filtered_freq <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PA_filtered_freq <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                          "grouped_boundary_comb")
+colnames(PB2_filtered_freq)[2] <- "counts"
+colnames(PB1_filtered_freq)[2] <- "counts"
+colnames(PA_filtered_freq)[2] <- "counts"
+
+## Extraction the information about the number of cells in which a boundary was observed
+PB2_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB2_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB2_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB2", -1])
+PB2_filtered_bc_info <- merge(PB2_filtered_freq, boundary_criteria_PB2_unique, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info <- merge(PB2_filtered_cfreq, PB2_filtered_bc_info, 
+                              by="boundary_idx")
+# Note: "counts" represents the number of times a boundary observed in the whole dataset (all the cells)
+# "cell_number" represents the number of cells in which a boundary was observed
+PB2_filtered_bc_info$Overlap_stock <- factor(PB2_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PB1_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB1_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB1_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB1", -1])
+PB1_filtered_bc_info <- merge(PB1_filtered_freq, boundary_criteria_PB1_unique, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info <- merge(PB1_filtered_cfreq, PB1_filtered_bc_info, 
+                              by="boundary_idx")
+PB1_filtered_bc_info$Overlap_stock <- factor(PB1_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PA_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                "cell_number"=integer())
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PA_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PA_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PA", -1])
+PA_filtered_bc_info <- merge(PA_filtered_freq, boundary_criteria_PA_unique, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info <- merge(PA_filtered_cfreq, PA_filtered_bc_info, 
+                             by="boundary_idx")
+PA_filtered_bc_info$Overlap_stock <- factor(PA_filtered_bc_info$Overlap_stock,
+                                            levels=c("Yes", "No"))
+
+## Count the filtered DIs in each cell
+PB2_filtered_count <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PB1_filtered_count <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PA_filtered_count <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                           "cell")
+# merge above data into a dataframe
+Poly_filtered_count <- merge(PB2_filtered_count, PB1_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count <- merge(Poly_filtered_count, PA_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count[is.na(Poly_filtered_count)] <- 0
+colnames(Poly_filtered_count) <- c("cell", "PB2_DI_count", "PB1_DI_count", "PA_DI_count")
+# export
+write.csv(Poly_filtered_count, 
+          file="../../S2/A549_lowMOI_polymerases_DI_filtered-grouped_counts.csv")
+
+
+## Adjust the x and y axis and re-plot ##
+# Adjust the x-aixs to percentage #
+s2_virus <- s2[(nrow(s2)-7):nrow(s2), ]
+s2_vsum <- as.data.frame(colSums(s2_virus)) 
+s2_host <- s2[1:(nrow(s2)-8), ]
+
+# Check if any cell with PB2/PB1/PA undetected
+sum(s2_virus[1, ] == 0) 
+sum(s2_virus[2, ] == 0) 
+sum(s2_virus[3, ] == 0) 
+# Thus only some cells have viral reads.
+
+# add a colume into bc_info dataframe to represent the percentage of cells with 
+# corresponding DI boundaries in cells with viral reads for corresponding segment
+PB2_filtered_bc_info$cell_percentage <- 
+  100 * PB2_filtered_bc_info$cell_number / (ncol(s2)-sum(s2_virus[1, ] == 0))
+PB1_filtered_bc_info$cell_percentage <- 
+  100 * PB1_filtered_bc_info$cell_number / (ncol(s2)-sum(s2_virus[2, ] == 0))
+PA_filtered_bc_info$cell_percentage <- 
+  100 * PA_filtered_bc_info$cell_number / (ncol(s2)-sum(s2_virus[3, ] == 0))
+
+# Adjust the y-axis to the median of the DI ratios for corresponding DIs by three methods ##
+# 1) by the UMI counts including full-length reads at 3' peak region
+peak_counts <- read.csv("../../S2/reads_mapped-to-3p-peak-each-segment_per-sample_full-length_UMIcounts.csv",
+                        row.names=1)
+rownames(peak_counts) <- c("PB2", "PB1", "PA")
+peak_counts <- peak_counts[, colnames(s2)]
+
+# 2) by the total UMI counts for each viral segment
+s2_poly <- s2_virus[1:3, ]
+
+
+# PB2
+# "3p": fall into 3' peak range
+# "total": total UMI counts for a given segment
+PB2_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s2_poly[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB2_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB2_filtered_bc_info <- merge(PB2_filtered_bc_info, PB2_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_3p)
+PB2_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_total)
+PB2_filtered_bc_info$grouped_boundary_comb <- as.character(PB2_filtered_bc_info$grouped_boundary_comb)
+PB2_filtered_bc_info$boundary_idx <- as.factor(PB2_filtered_bc_info$boundary_idx)
+PB2_filtered_bc_info$Color <- as.character(PB2_filtered_bc_info$Color)
+
+write.csv(PB2_filtered_bc_info, file="../../S2/A549_lowMOI_PB2_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PB1
+PB1_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s2_poly[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB1_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB1_filtered_bc_info <- merge(PB1_filtered_bc_info, PB1_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_3p)
+PB1_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_total)
+PB1_filtered_bc_info$grouped_boundary_comb <- as.character(PB1_filtered_bc_info$grouped_boundary_comb)
+PB1_filtered_bc_info$boundary_idx <- as.factor(PB1_filtered_bc_info$boundary_idx)
+PB1_filtered_bc_info$Color <- as.character(PB1_filtered_bc_info$Color)
+
+write.csv(PB1_filtered_bc_info, file="../../S2/A549_lowMOI_PB1_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PA
+PA_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                       "median_DI_ratio_3p"=numeric(),
+                                       "median_DI_ratio_total"=numeric(),
+                                       stringsAsFactors=FALSE)
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == 
+                                grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s2_poly[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PA_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                     i_DIratio_total_median)
+}
+PA_filtered_bc_info <- merge(PA_filtered_bc_info, PA_eachDI_eachcell_ratio, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PA_filtered_bc_info$median_DI_ratio_3p)
+PA_filtered_bc_info$median_DI_ratio_total <- as.numeric(PA_filtered_bc_info$median_DI_ratio_total)
+PA_filtered_bc_info$grouped_boundary_comb <- as.character(PA_filtered_bc_info$grouped_boundary_comb)
+PA_filtered_bc_info$boundary_idx <- as.factor(PA_filtered_bc_info$boundary_idx)
+PA_filtered_bc_info$Color <- as.character(PA_filtered_bc_info$Color)
+
+write.csv(PA_filtered_bc_info, file="../../S2/A549_lowMOI_PA_DI_boundary_ratio_master_info.csv")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+
+### A549 high MOI ###
+
+## Load data
+boundary_criteria <- read.csv("../Filtered_Grouped_DI_boundaries_S3_A549_highMOI.csv")
+
+## Filter the single cell data
+PB2_boundary_comb <- A549_highMOI_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+
+PB1_boundary_comb <- A549_highMOI_PB1_boundary_df
+PB1_boundary_comb$boundary_comb <- paste(PB1_boundary_comb$start, 
+                                         PB1_boundary_comb$stop, sep="^")
+
+PA_boundary_comb <- A549_highMOI_PA_boundary_df
+PA_boundary_comb$boundary_comb <- paste(PA_boundary_comb$start, 
+                                        PA_boundary_comb$stop, sep="^")
+
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+PB1_boundary_comb_filtered <- merge(PB1_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB1", ])
+PA_boundary_comb_filtered <- merge(PA_boundary_comb, 
+                                   boundary_criteria[boundary_criteria$seg == "PA", ])
+
+## Extract the information about the frequency of a boundary combination in the dataset
+PB2_filtered_freq <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PB1_filtered_freq <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PA_filtered_freq <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                          "grouped_boundary_comb")
+colnames(PB2_filtered_freq)[2] <- "counts"
+colnames(PB1_filtered_freq)[2] <- "counts"
+colnames(PA_filtered_freq)[2] <- "counts"
+
+## Extraction the information about the number of cells in which a boundary was observed
+PB2_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB2_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB2_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB2", -1])
+PB2_filtered_bc_info <- merge(PB2_filtered_freq, boundary_criteria_PB2_unique, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info <- merge(PB2_filtered_cfreq, PB2_filtered_bc_info, 
+                              by="boundary_idx")
+PB2_filtered_bc_info$Overlap_stock <- factor(PB2_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PB1_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB1_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB1_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB1", -1])
+PB1_filtered_bc_info <- merge(PB1_filtered_freq, boundary_criteria_PB1_unique, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info <- merge(PB1_filtered_cfreq, PB1_filtered_bc_info, 
+                              by="boundary_idx")
+PB1_filtered_bc_info$Overlap_stock <- factor(PB1_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PA_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                "cell_number"=integer())
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PA_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PA_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PA", -1])
+PA_filtered_bc_info <- merge(PA_filtered_freq, boundary_criteria_PA_unique, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info <- merge(PA_filtered_cfreq, PA_filtered_bc_info, 
+                             by="boundary_idx")
+PA_filtered_bc_info$Overlap_stock <- factor(PA_filtered_bc_info$Overlap_stock,
+                                            levels=c("Yes", "No"))
+
+## Count the filtered DIs in each cell
+PB2_filtered_count <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PB1_filtered_count <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PA_filtered_count <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                           "cell")
+# merge above data into a dataframe
+Poly_filtered_count <- merge(PB2_filtered_count, PB1_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count <- merge(Poly_filtered_count, PA_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count[is.na(Poly_filtered_count)] <- 0
+colnames(Poly_filtered_count) <- c("cell", "PB2_DI_count", "PB1_DI_count", "PA_DI_count")
+# export
+write.csv(Poly_filtered_count, 
+          file="../../S3/A549_highMOI_polymerases_DI_filtered-grouped_counts.csv")
+
+
+## Adjust the x and y axis and re-plot ##
+# Adjust the x-aixs to percentage #
+s3_virus <- s3[(nrow(s3)-7):nrow(s3), ]
+s3_vsum <- as.data.frame(colSums(s3_virus)) 
+s3_host <- s3[1:(nrow(s3)-8), ]
+
+# Check if any cell with PB2/PB1/PA undetected
+sum(s3_virus[1, ] == 0) 
+sum(s3_virus[2, ] == 0) 
+sum(s3_virus[3, ] == 0) 
+# Thus some cells don't certain viral segments.
+
+# add a colume into bc_info dataframe to represent the percentage of cells with 
+# corresponding DI boundaries in cells with viral reads for corresponding segments
+PB2_filtered_bc_info$cell_percentage <- 
+  100 * PB2_filtered_bc_info$cell_number / (ncol(s3)-sum(s3_virus[1, ] == 0))
+PB1_filtered_bc_info$cell_percentage <- 
+  100 * PB1_filtered_bc_info$cell_number / (ncol(s3)-sum(s3_virus[2, ] == 0))
+PA_filtered_bc_info$cell_percentage <- 
+  100 * PA_filtered_bc_info$cell_number / (ncol(s3)-sum(s3_virus[3, ] == 0))
+
+# Adjust the y-axis to the median of the DI ratios for corresponding DIs by three methods ##
+# 1) by the UMI counts including full-length reads at 3' peak region
+peak_counts <- read.csv("../../S3/reads_mapped-to-3p-peak-each-segment_per-sample_full-length_UMIcounts.csv",
+                        row.names=1)
+rownames(peak_counts) <- c("PB2", "PB1", "PA")
+peak_counts <- peak_counts[, colnames(s3)]
+
+# 2) by the total UMI counts for each viral segment
+s3_poly <- s3_virus[1:3, ]
+
+
+# PB2
+# "3p": fall into 3' peak range
+# "total": total UMI counts for a given segment
+PB2_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s3_poly[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_median <- median(i_subset_freqtb_nonzero$DI_ratio_3p)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB2_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB2_filtered_bc_info <- merge(PB2_filtered_bc_info, PB2_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_3p)
+PB2_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_total)
+PB2_filtered_bc_info$grouped_boundary_comb <- as.character(PB2_filtered_bc_info$grouped_boundary_comb)
+PB2_filtered_bc_info$boundary_idx <- as.factor(PB2_filtered_bc_info$boundary_idx)
+PB2_filtered_bc_info$Color <- as.character(PB2_filtered_bc_info$Color)
+
+write.csv(PB2_filtered_bc_info, file="../../S3/A549_highMOI_PB2_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PB1
+PB1_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s3_poly[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_median <- median(i_subset_freqtb_nonzero$DI_ratio_3p)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB1_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB1_filtered_bc_info <- merge(PB1_filtered_bc_info, PB1_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_3p)
+PB1_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_total)
+PB1_filtered_bc_info$grouped_boundary_comb <- as.character(PB1_filtered_bc_info$grouped_boundary_comb)
+PB1_filtered_bc_info$boundary_idx <- as.factor(PB1_filtered_bc_info$boundary_idx)
+PB1_filtered_bc_info$Color <- as.character(PB1_filtered_bc_info$Color)
+
+write.csv(PB1_filtered_bc_info, file="../../S3/A549_highMOI_PB1_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PA
+PA_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                       "median_DI_ratio_3p"=numeric(),
+                                       "median_DI_ratio_total"=numeric(),
+                                       stringsAsFactors=FALSE)
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == 
+                                grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s3_poly[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PA_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                     i_DIratio_total_median)
+}
+PA_filtered_bc_info <- merge(PA_filtered_bc_info, PA_eachDI_eachcell_ratio, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PA_filtered_bc_info$median_DI_ratio_3p)
+PA_filtered_bc_info$median_DI_ratio_total <- as.numeric(PA_filtered_bc_info$median_DI_ratio_total)
+PA_filtered_bc_info$grouped_boundary_comb <- as.character(PA_filtered_bc_info$grouped_boundary_comb)
+PA_filtered_bc_info$boundary_idx <- as.factor(PA_filtered_bc_info$boundary_idx)
+PA_filtered_bc_info$Color <- as.character(PA_filtered_bc_info$Color)
+
+write.csv(PA_filtered_bc_info, file="../../S3/A549_highMOI_PA_DI_boundary_ratio_master_info.csv")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 2, 0.5), limits=c(0, 2)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+
+### MDCK low MOI ###
+## Load data
+boundary_criteria <- read.csv("../Filtered_Grouped_DI_boundaries_S6_MDCK_lowMOI.csv")
+
+## Filter the single cell data
+PB2_boundary_comb <- MDCK_lowMOI_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+
+PB1_boundary_comb <- MDCK_lowMOI_PB1_boundary_df
+PB1_boundary_comb$boundary_comb <- paste(PB1_boundary_comb$start, 
+                                         PB1_boundary_comb$stop, sep="^")
+
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+PB1_boundary_comb_filtered <- merge(PB1_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB1", ])
+
+
+## Extract the information about the frequency of a boundary combination in the dataset
+PB2_filtered_freq <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PB1_filtered_freq <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+colnames(PB2_filtered_freq)[2] <- "counts"
+colnames(PB1_filtered_freq)[2] <- "counts"
+
+
+## Extraction the information about the number of cells in which a boundary was observed
+PB2_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB2_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB2_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB2", -1])
+PB2_filtered_bc_info <- merge(PB2_filtered_freq, boundary_criteria_PB2_unique, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info <- merge(PB2_filtered_cfreq, PB2_filtered_bc_info, 
+                              by="boundary_idx")
+PB2_filtered_bc_info$Overlap_stock <- factor(PB2_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PB1_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB1_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB1_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB1", -1])
+PB1_filtered_bc_info <- merge(PB1_filtered_freq, boundary_criteria_PB1_unique, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info <- merge(PB1_filtered_cfreq, PB1_filtered_bc_info, 
+                              by="boundary_idx")
+PB1_filtered_bc_info$Overlap_stock <- factor(PB1_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+## Count the filtered DIs in each cell
+PB2_filtered_count <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PB1_filtered_count <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+# merge above data into a dataframe
+Poly_filtered_count <- merge(PB2_filtered_count, PB1_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count[is.na(Poly_filtered_count)] <- 0
+colnames(Poly_filtered_count) <- c("cell", "PB2_DI_count", "PB1_DI_count")
+# export
+write.csv(Poly_filtered_count, 
+          file="../../S6/MDCK_lowMOI_polymerases_DI_filtered-grouped_counts.csv")
+
+
+## Adjust the x and y axis and re-plot ##
+# Adjust the x-aixs to percentage #
+s6_virus <- s6[(nrow(s6)-7):nrow(s6), ]
+s6_vsum <- as.data.frame(colSums(s6_virus)) 
+s6_host <- s6[1:(nrow(s6)-8), ]
+
+# Check if any cell with PB2/PB1/PA undetected
+sum(s6_virus[1, ] == 0) 
+sum(s6_virus[2, ] == 0) 
+sum(s6_virus[3, ] == 0) 
+# Thus some cells don't certain viral segments.
+
+# add a colume into bc_info dataframe to represent the percentage of cells with 
+# corresponding DI boundaries in cells with viral reads for corresponding segments
+PB2_filtered_bc_info$cell_percentage <- 
+  100 * PB2_filtered_bc_info$cell_number / (ncol(s6)-sum(s6_virus[1, ] == 0))
+PB1_filtered_bc_info$cell_percentage <- 
+  100 * PB1_filtered_bc_info$cell_number / (ncol(s6)-sum(s6_virus[2, ] == 0))
+PA_filtered_bc_info$cell_percentage <- 
+  100 * PA_filtered_bc_info$cell_number / (ncol(s6)-sum(s6_virus[3, ] == 0))
+
+# Adjust the y-axis to the median of the DI ratios for corresponding DIs by three methods ##
+# 1) by the UMI counts including full-length reads at 3' peak region
+peak_counts <- read.csv("../../S6/reads_mapped-to-3p-peak-each-segment_per-sample_full-length_UMIcounts.csv",
+                        row.names=1)
+rownames(peak_counts) <- c("PB2", "PB1", "PA")
+peak_counts <- peak_counts[, colnames(s6)]
+
+# 2) by the total UMI counts for each viral segment
+s6_poly <- s6_virus[1:3, ]
+
+
+# PB2
+# "3p": fall into 3' peak range
+# "total": total UMI counts for a given segment
+PB2_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s6_poly[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB2_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB2_filtered_bc_info <- merge(PB2_filtered_bc_info, PB2_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_3p)
+PB2_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_total)
+PB2_filtered_bc_info$grouped_boundary_comb <- as.character(PB2_filtered_bc_info$grouped_boundary_comb)
+PB2_filtered_bc_info$boundary_idx <- as.factor(PB2_filtered_bc_info$boundary_idx)
+PB2_filtered_bc_info$Color <- as.character(PB2_filtered_bc_info$Color)
+
+write.csv(PB2_filtered_bc_info, file="../../S6/MDCK_lowMOI_PB2_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PB1
+PB1_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s6_poly[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB1_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB1_filtered_bc_info <- merge(PB1_filtered_bc_info, PB1_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_3p)
+PB1_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_total)
+PB1_filtered_bc_info$grouped_boundary_comb <- as.character(PB1_filtered_bc_info$grouped_boundary_comb)
+PB1_filtered_bc_info$boundary_idx <- as.factor(PB1_filtered_bc_info$boundary_idx)
+PB1_filtered_bc_info$Color <- as.character(PB1_filtered_bc_info$Color)
+
+write.csv(PB1_filtered_bc_info, file="../../S6/MDCK_lowMOI_PB1_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+
+### MDCK high MOI ###
+## Load data
+boundary_criteria <- read.csv("../Filtered_Grouped_DI_boundaries_S7_MDCK_highMOI.csv")
+
+## Filter the single cell data
+PB2_boundary_comb <- MDCK_highMOI_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+
+PB1_boundary_comb <- MDCK_highMOI_PB1_boundary_df
+PB1_boundary_comb$boundary_comb <- paste(PB1_boundary_comb$start, 
+                                         PB1_boundary_comb$stop, sep="^")
+
+PA_boundary_comb <- MDCK_highMOI_PA_boundary_df
+PA_boundary_comb$boundary_comb <- paste(PA_boundary_comb$start, 
+                                        PA_boundary_comb$stop, sep="^")
+
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+PB1_boundary_comb_filtered <- merge(PB1_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB1", ])
+PA_boundary_comb_filtered <- merge(PA_boundary_comb, 
+                                   boundary_criteria[boundary_criteria$seg == "PA", ])
+
+## Extract the information about the frequency of a boundary combination in the dataset
+PB2_filtered_freq <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PB1_filtered_freq <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                           "grouped_boundary_comb")
+PA_filtered_freq <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")], 
+                          "grouped_boundary_comb")
+colnames(PB2_filtered_freq)[2] <- "counts"
+colnames(PB1_filtered_freq)[2] <- "counts"
+colnames(PA_filtered_freq)[2] <- "counts"
+
+## Extraction the information about the number of cells in which a boundary was observed
+PB2_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB2_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB2_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB2", -1])
+PB2_filtered_bc_info <- merge(PB2_filtered_freq, boundary_criteria_PB2_unique, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info <- merge(PB2_filtered_cfreq, PB2_filtered_bc_info, 
+                              by="boundary_idx")
+PB2_filtered_bc_info$Overlap_stock <- factor(PB2_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PB1_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                 "cell_number"=integer())
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PB1_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PB1_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PB1", -1])
+PB1_filtered_bc_info <- merge(PB1_filtered_freq, boundary_criteria_PB1_unique, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info <- merge(PB1_filtered_cfreq, PB1_filtered_bc_info, 
+                              by="boundary_idx")
+PB1_filtered_bc_info$Overlap_stock <- factor(PB1_filtered_bc_info$Overlap_stock,
+                                             levels=c("Yes", "No"))
+
+PA_filtered_cfreq <- data.frame("boundary_idx"=integer(),
+                                "cell_number"=integer())
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  boundary <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  boundary_subdf <- PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == boundary, ]
+  boundary_idx <- as.integer(as.character(unique(boundary_subdf$boundary_idx)))
+  ccount <- length(unique(boundary_subdf$cell))
+  PA_filtered_cfreq[i, ] <- data.frame(boundary_idx, ccount)
+}
+boundary_criteria_PA_unique <- 
+  unique(boundary_criteria[boundary_criteria$seg == "PA", -1])
+PA_filtered_bc_info <- merge(PA_filtered_freq, boundary_criteria_PA_unique, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info <- merge(PA_filtered_cfreq, PA_filtered_bc_info, 
+                             by="boundary_idx")
+PA_filtered_bc_info$Overlap_stock <- factor(PA_filtered_bc_info$Overlap_stock,
+                                            levels=c("Yes", "No"))
+
+## Count the filtered DIs in each cell
+PB2_filtered_count <- count(PB2_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PB1_filtered_count <- count(PB1_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                            "cell")
+PA_filtered_count <- count(PA_boundary_comb_filtered[, c("cell", "grouped_boundary_comb")],
+                           "cell")
+# merge above data into a dataframe
+Poly_filtered_count <- merge(PB2_filtered_count, PB1_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count <- merge(Poly_filtered_count, PA_filtered_count, by="cell",
+                             all=TRUE)
+Poly_filtered_count[is.na(Poly_filtered_count)] <- 0
+colnames(Poly_filtered_count) <- c("cell", "PB2_DI_count", "PB1_DI_count", "PA_DI_count")
+
+# export
+write.csv(Poly_filtered_count, 
+          file="../../S7/MDCK_highMOI_polymerases_DI_filtered-grouped_counts.csv")
+
+
+## Adjust the x and y axis and re-plot ##
+# Adjust the x-aixs to percentage #
+s7_virus <- s7[(nrow(s7)-7):nrow(s7), ]
+s7_vsum <- as.data.frame(colSums(s7_virus)) 
+s7_host <- s7[1:(nrow(s7)-8), ]
+
+# Check if any cell with PB2/PB1/PA undetected
+sum(s7_virus[1, ] == 0) 
+sum(s7_virus[2, ] == 0) 
+sum(s7_virus[3, ] == 0) 
+# Thus some cells don't certain viral segments.
+
+# add a colume into bc_info dataframe to represent the percentage of cells with 
+# corresponding DI boundaries in cells with viral reads for corresponding segments
+PB2_filtered_bc_info$cell_percentage <- 
+  100 * PB2_filtered_bc_info$cell_number / (ncol(s7)-sum(s7_virus[1, ] == 0))
+PB1_filtered_bc_info$cell_percentage <- 
+  100 * PB1_filtered_bc_info$cell_number / (ncol(s7)-sum(s7_virus[2, ] == 0))
+PA_filtered_bc_info$cell_percentage <- 
+  100 * PA_filtered_bc_info$cell_number / (ncol(s7)-sum(s7_virus[3, ] == 0))
+
+# Adjust the y-axis to the median of the DI ratios for corresponding DIs by three methods ##
+# 1) by the UMI counts including full-length reads at 3' peak region
+peak_counts <- read.csv("../../S7/reads_mapped-to-3p-peak-each-segment_per-sample_full-length_UMIcounts.csv",
+                        row.names=1)
+rownames(peak_counts) <- c("PB2", "PB1", "PA")
+peak_counts <- peak_counts[, colnames(s7)]
+
+# 2) by the total UMI counts for each viral segment
+s7_poly <- s7_virus[1:3, ]
+
+
+# PB2
+# "3p": fall into 3' peak range
+# "total": total UMI counts for a given segment
+PB2_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB2_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB2_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB2_boundary_comb_filtered[PB2_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s7_poly[1, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_median <- median(i_subset_freqtb_nonzero$DI_ratio_3p)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB2_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB2_filtered_bc_info <- merge(PB2_filtered_bc_info, PB2_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB2_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_3p)
+PB2_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB2_filtered_bc_info$median_DI_ratio_total)
+PB2_filtered_bc_info$grouped_boundary_comb <- as.character(PB2_filtered_bc_info$grouped_boundary_comb)
+PB2_filtered_bc_info$boundary_idx <- as.factor(PB2_filtered_bc_info$boundary_idx)
+PB2_filtered_bc_info$Color <- as.character(PB2_filtered_bc_info$Color)
+
+write.csv(PB2_filtered_bc_info, file="../../S7/MDCK_highMOI_PB2_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB2_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB2_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PB1
+PB1_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                        "median_DI_ratio_3p"=numeric(),
+                                        "median_DI_ratio_total"=numeric(),
+                                        stringsAsFactors=FALSE)
+for(i in 1:length(unique(PB1_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PB1_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PB1_boundary_comb_filtered[PB1_boundary_comb_filtered$grouped_boundary_comb == 
+                                 grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s7_poly[2, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PB1_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                      i_DIratio_total_median)
+}
+PB1_filtered_bc_info <- merge(PB1_filtered_bc_info, PB1_eachDI_eachcell_ratio, 
+                              by="grouped_boundary_comb")
+PB1_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_3p)
+PB1_filtered_bc_info$median_DI_ratio_total <- as.numeric(PB1_filtered_bc_info$median_DI_ratio_total)
+PB1_filtered_bc_info$grouped_boundary_comb <- as.character(PB1_filtered_bc_info$grouped_boundary_comb)
+PB1_filtered_bc_info$boundary_idx <- as.factor(PB1_filtered_bc_info$boundary_idx)
+PB1_filtered_bc_info$Color <- as.character(PB1_filtered_bc_info$Color)
+
+write.csv(PB1_filtered_bc_info, file="../../S7/MDCK_highMOI_PB1_DI_boundary_ratio_master_info.csv")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 2.5, 0.5), limits=c(0, 2.5)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PB1_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PB1_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+
+# PA
+PA_eachDI_eachcell_ratio <- data.frame("grouped_boundary_comb"=character(),
+                                       "median_DI_ratio_3p"=numeric(),
+                                       "median_DI_ratio_total"=numeric(),
+                                       stringsAsFactors=FALSE)
+for(i in 1:length(unique(PA_boundary_comb_filtered$grouped_boundary_comb))) {
+  grouped_boundary_comb <- as.character(unique(PA_boundary_comb_filtered$grouped_boundary_comb)[i])
+  i_subset <- 
+    PA_boundary_comb_filtered[PA_boundary_comb_filtered$grouped_boundary_comb == 
+                                grouped_boundary_comb, ]
+  i_subset_freqtb <- as.data.frame(table(i_subset[, c("cell", "grouped_boundary_comb")]))
+  i_subset_freqtb_nonzero <- i_subset_freqtb[i_subset_freqtb$Freq > 0, ]
+  i_subset_freqtb_nonzero$cell <- as.character(i_subset_freqtb_nonzero$cell)
+  i_subset_freqtb_nonzero$peak_count <- t(peak_counts[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$total_count <- t(s7_poly[3, i_subset_freqtb_nonzero$cell])
+  i_subset_freqtb_nonzero$DI_ratio_3p <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$peak_count
+  i_subset_freqtb_nonzero$DI_ratio_total <- 
+    i_subset_freqtb_nonzero$Freq / i_subset_freqtb_nonzero$total_count
+  i_DIratio_3p_raw <- i_subset_freqtb_nonzero$DI_ratio_3p
+  i_DIratio_3p_raw <- i_DIratio_3p_raw[!is.infinite(i_DIratio_3p_raw)]
+  i_DIratio_3p_median <- median(i_DIratio_3p_raw, na.rm=TRUE)
+  i_DIratio_total_median <- median(i_subset_freqtb_nonzero$DI_ratio_total)
+  PA_eachDI_eachcell_ratio[i, ] <- c(grouped_boundary_comb, i_DIratio_3p_median,
+                                     i_DIratio_total_median)
+}
+PA_filtered_bc_info <- merge(PA_filtered_bc_info, PA_eachDI_eachcell_ratio, 
+                             by="grouped_boundary_comb")
+PA_filtered_bc_info$median_DI_ratio_3p <- as.numeric(PA_filtered_bc_info$median_DI_ratio_3p)
+PA_filtered_bc_info$median_DI_ratio_total <- as.numeric(PA_filtered_bc_info$median_DI_ratio_total)
+PA_filtered_bc_info$grouped_boundary_comb <- as.character(PA_filtered_bc_info$grouped_boundary_comb)
+PA_filtered_bc_info$boundary_idx <- as.factor(PA_filtered_bc_info$boundary_idx)
+PA_filtered_bc_info$Color <- as.character(PA_filtered_bc_info$Color)
+
+write.csv(PA_filtered_bc_info, file="../../S7/MDCK_highMOI_PA_DI_boundary_ratio_master_info.csv")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_3p, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+ggplot(PA_filtered_bc_info, aes(x=cell_percentage, y=median_DI_ratio_total, color=grouped_boundary_comb)) +
+  geom_point(aes(shape=Overlap_stock), size=5) +
+  scale_color_manual(values=PA_filtered_bc_info$Color) +
+  scale_y_continuous(breaks=seq(0, 1, 0.1), limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(0, 100, 25), limits=c(0, 100)) +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.background=element_rect(color="white")) +
+  labs(x="Cell percentages", y="DI ratios", color="Grouped boundaries", shape="From stock")
+
+```
+

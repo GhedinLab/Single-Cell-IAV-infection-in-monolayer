@@ -1,0 +1,2740 @@
+---
+title: "Bulk-data_DEanalysis"
+author: "Chang Wang"
+date: "7/28/2018"
+output: 
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Visualization of viral read percentage in the bulk RNA-seq data ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(reshape)
+
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+
+```
+
+
+
+#### Load data (use TPM normalized to library size) ####
+```{r warning=FALSE, message=FALSE}
+bulk_TPM <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/BulkRNAseq/BulkRNAseq_count_20samples_TPM_all-norm2library-size.csv",
+                     row.names=1)
+
+bulk_TPM_percent <- 100*prop.table(as.matrix(bulk_TPM), margin=2)
+
+A549_TPM_vp <- bulk_TPM_percent[1:8, 1:6]
+HBEpC_TPM_vp <- bulk_TPM_percent[1:8, c(9:14, 17:18)]
+
+A549_TPM_vp <- A549_TPM_vp[, c(5:6, 1:4)]
+HBEpC_TPM_vp <- HBEpC_TPM_vp[, c(5:6, 1:2, 7:8, 3:4)]
+
+```
+
+
+
+#### Total viral load ####
+```{r warning=FALSE, message=FALSE}
+A549_TPM_vpsum <- as.data.frame(colSums(A549_TPM_vp))
+colnames(A549_TPM_vpsum) <- "vpsum"
+
+HBEpC_TPM_vpsum <- as.data.frame(colSums(HBEpC_TPM_vp))
+colnames(HBEpC_TPM_vpsum) <- "vpsum"
+
+TPM_vpsum <- rbind(A549_TPM_vpsum, HBEpC_TPM_vpsum)
+TPM_vpsum$cell <- c(rep("A549", 6), rep("HBEpC", 8))
+TPM_vpsum$timpoint <- c(6, 6, 12, 12, 24, 24, 6, 6, 12, 12, 12, 12, 24, 24)
+TPM_vpsum$batch <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1)
+TPM_vpsum$tp_batch_sudo <- c("6h_b1", "6h_b1", "12h_b2", "12h_b2", "24h_b1", "24h_b1",
+                             "6h_b1", "6h_b1", "12h_b1", "12h_b1", "12h_b2", "12h_b2",
+                             "24h_b1", "24h_b1")
+TPM_vpsum$timpoint <- factor(TPM_vpsum$timpoint)
+TPM_vpsum$tp_batch_sudo <- factor(TPM_vpsum$tp_batch,
+                                  levels=c("6h_b1", "12h_b1", "12h_b2", "24h_b1"))
+
+ggplot(TPM_vpsum, aes(x=timpoint, y=vpsum, color=tp_batch_sudo)) +
+  facet_wrap(~cell, ncol=3) +
+  geom_point(size=4) +
+  geom_point(shape=1, size=4, colour="black") +
+  scale_color_manual(values=c("#b1df01", "#34bc6e", "olivedrab4", "#466b5d")) +
+  stat_summary(fun.y=mean, colour="black", geom="line", aes(group=1)) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="bottom") +
+  labs(x="Time point (hpi)", y="Viral read percentage")
+
+```
+
+
+
+#### For each viral segment ####
+```{r warning=FALSE, message=FALSE}
+A549_TPM_vp_avebrep <- data.frame("PB2"=numeric(),
+                                  "PB1"=numeric(),
+                                  "PA"=numeric(),
+                                  "HA"=numeric(),
+                                  "NP"=numeric(),
+                                  "NA"=numeric(),
+                                  "M"=numeric(),
+                                  "NS"=numeric())
+for(i in c(1, 3, 5)) {
+  onetimepoint <- vector()
+  for(j in 1:8) {
+    onetimepoint <- c(onetimepoint, mean(as.numeric(A549_TPM_vp[j, i:(i+1)])))
+  }
+  if(i == 1) {
+    A549_TPM_vp_avebrep[i, ] <- onetimepoint
+  } else if(i == 3) {
+    A549_TPM_vp_avebrep[2, ] <- onetimepoint
+  } else {
+    A549_TPM_vp_avebrep[3, ] <- onetimepoint
+  }
+}
+rownames(A549_TPM_vp_avebrep) <- c("6hpi", "12hpi", "24hpi")
+
+HBEpC_TPM_vp_avebrep <- data.frame("PB2"=numeric(),
+                                   "PB1"=numeric(),
+                                   "PA"=numeric(),
+                                   "HA"=numeric(),
+                                   "NP"=numeric(),
+                                   "NA"=numeric(),
+                                   "M"=numeric(),
+                                   "NS"=numeric())
+for(i in c(1, 3, 5, 7)) {
+  onetimepoint <- vector()
+  for(j in 1:8) {
+    onetimepoint <- c(onetimepoint, mean(as.numeric(HBEpC_TPM_vp[j, c(i:(i+1))])))
+  } 
+  if(i == 1) {
+    HBEpC_TPM_vp_avebrep[i, ] <- onetimepoint
+  } else if(i == 3) {
+    HBEpC_TPM_vp_avebrep[2, ] <- onetimepoint
+  } else if(i == 5) {
+    HBEpC_TPM_vp_avebrep[3, ] <- onetimepoint
+  } else {
+    HBEpC_TPM_vp_avebrep[4, ] <- onetimepoint
+  }
+}
+rownames(HBEpC_TPM_vp_avebrep) <- c("6hpi", "batch1_12hpi", "batch2_12hpi", "24hpi")
+
+A549_TPM_vp <- as.data.frame(t(A549_TPM_vp))
+colnames(A549_TPM_vp) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+A549_TPM_vp$timpoint <- c(6, 6, 12, 12, 24, 24)
+A549_TPM_vp$rep <- c(rep(c("1", "2"), 3))
+A549_TPM_vp_melt <- melt(A549_TPM_vp, id.vars=c("timpoint", "rep"))
+A549_TPM_vp_melt$timpoint <- factor(A549_TPM_vp_melt$timpoint)
+
+ggplot(A549_TPM_vp_melt, aes(x=timpoint, y=value, color=timpoint)) +
+  facet_wrap(~variable, ncol=3) +
+  geom_point(size=4) +
+  geom_point(shape=1, size=4, colour="black") +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d")) +
+  stat_summary(fun.y=mean, colour="black", geom="line", aes(group=1)) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  labs(x="Time point (hpi)", y="Viral read percentage")
+
+
+HBEpC_TPM_vp <- as.data.frame(t(HBEpC_TPM_vp))
+colnames(HBEpC_TPM_vp) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+HBEpC_TPM_vp$timpoint <- c(6, 6, 12, 12, 12, 12, 24, 24)
+HBEpC_TPM_vp$rep <- c(rep(c("1", "2"), 4))
+HBEpC_TPM_vp$batch <- c(rep("1", 4), rep("2", 2), rep("1", 2))
+HBEpC_TPM_vp$tp_batch <- c("6h_b1", "6h_b1", "12h_b1", "12h_b1",
+                           "12h_b2", "12h_b2", "24h_b1", "24h_b1")
+HBEpC_TPM_vp_melt <- melt(HBEpC_TPM_vp, id.vars=c("timpoint", "rep", "batch", "tp_batch"))
+HBEpC_TPM_vp_melt$timpoint <- factor(HBEpC_TPM_vp_melt$timpoint)
+HBEpC_TPM_vp_melt$batch <- factor(HBEpC_TPM_vp_melt$batch)
+HBEpC_TPM_vp_melt$tp_batch <- factor(HBEpC_TPM_vp_melt$tp_batch,
+                                     levels=c("6h_b1", "12h_b1", "12h_b2", "24h_b1"))
+
+ggplot(HBEpC_TPM_vp_melt, aes(x=timpoint, y=value, color=tp_batch)) +
+  facet_wrap(~variable, ncol=3) +
+  geom_point(size=4) +
+  geom_point(shape=1, size=4, colour="black") +
+  scale_color_manual(values=c("#b1df01", "#34bc6e", "olivedrab4", "#466b5d")) +
+  stat_summary(fun.y=mean, colour="black", geom="line", aes(group=1)) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  labs(x="Time point (hpi)", y="Viral read percentage")
+
+```
+
+
+
+#### Check the percentage of each viral segments among viral reads ####
+```{r warning=FALSE, message=FALSE}
+bulk_TPM_virus <- bulk_TPM[1:8, ]
+bulk_TPM_virus_A549 <- bulk_TPM_virus[, c(5:6, 1:4)]
+bulk_TPM_virus_HBEpC <- bulk_TPM_virus[, c(13:14, 9:10, 17:18, 11:12)]
+
+bulk_TPM_virus_A549_vp <- 100*prop.table(as.matrix(bulk_TPM_virus_A549), margin=2)
+bulk_TPM_virus_HBEpC_vp <- 100*prop.table(as.matrix(bulk_TPM_virus_HBEpC), margin=2)
+
+# Plot A549
+rownames(bulk_TPM_virus_A549_vp) <- c("PB2", "PB1", "PA", "HA", "NP", "\\NA",
+                                      "M", "NS")
+colnames(bulk_TPM_virus_A549_vp) <- c("6hpi_1", "6hpi_2", "12hpi_1", "12hpi_2",
+                                      "24hpi_1", "24hpi_2")
+bulk_TPM_virus_A549_vp_melt <- melt(bulk_TPM_virus_A549_vp)
+bulk_TPM_virus_A549_vp_melt$X1 <- factor(bulk_TPM_virus_A549_vp_melt$X1,
+                                         levels=c("PB2", "PB1", "PA", "HA", "NP", 
+                                                  "\\NA", "M", "NS"))
+bulk_TPM_virus_A549_vp_melt$X2 <- factor(bulk_TPM_virus_A549_vp_melt$X2,
+                                         levels=c("6hpi_1", "6hpi_2", "12hpi_1", 
+                                                  "12hpi_2", "24hpi_1", "24hpi_2"))
+ggplot(bulk_TPM_virus_A549_vp_melt, aes(x=X2, y=value, fill=X1)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(labels=c("PB2", "PB1", "PA", "HA", "NP", "NA",
+                             "M", "NS"),
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4")) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  labs(x="Sample", y="Viral read percentage of each segment \n in the viral mRNA pool",
+       fill="")
+
+# Plot HBEpC
+rownames(bulk_TPM_virus_HBEpC_vp) <- c("PB2", "PB1", "PA", "HA", "NP", "\\NA",
+                                       "M", "NS")
+colnames(bulk_TPM_virus_HBEpC_vp) <- c("6hpi_1", "6hpi_2", "12hpi_1", "12hpi_2", 
+                                       "12hpi_1_b2", "12hpi_2_b2",
+                                       "24hpi_1", "24hpi_2")
+bulk_TPM_virus_HBEpC_vp_melt <- melt(bulk_TPM_virus_HBEpC_vp)
+bulk_TPM_virus_HBEpC_vp_melt$X1 <- factor(bulk_TPM_virus_HBEpC_vp_melt$X1,
+                                          levels=c("PB2", "PB1", "PA", "HA", "NP", 
+                                                   "\\NA", "M", "NS"))
+bulk_TPM_virus_HBEpC_vp_melt$X2 <- factor(bulk_TPM_virus_HBEpC_vp_melt$X2,
+                                          levels=c("6hpi_1", "6hpi_2", "12hpi_1", 
+                                                   "12hpi_2", 
+                                                   "12hpi_1_b2", "12hpi_2_b2",
+                                                   "24hpi_1", "24hpi_2"))
+ggplot(bulk_TPM_virus_HBEpC_vp_melt, aes(x=X2, y=value, fill=X1)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(labels=c("PB2", "PB1", "PA", "HA", "NP", "NA",
+                             "M", "NS"),
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4")) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  labs(x="Sample", y="Viral read percentage of each segment \n in the viral mRNA pool",
+       fill="")
+
+```
+
+
+
+
+###### DE analyses ######
+```{r warning=FALSE, message=FALSE}
+library(DESeq2)
+library(edgeR)
+library(ggplot2)
+library(dplyr)
+library(pheatmap)
+library(RColorBrewer)
+library(PoiClaClu)
+library(genefilter)
+set.seed(777)
+
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/BulkRNAseq/")
+
+geneid_list <- read.csv("../../SMARTseq2_2017Summer/July_SMART-Seq2_A549-Mock-PR86hpi_HiSeq/hg19_PR8segs_gene-ids-names_list.csv", na.strings="na")
+geneid_list <- geneid_list[c(-1:-8),]
+expdata <- read.csv("BulkRNAseq_count_20samples.csv")
+expdata <- expdata[c(-1:-8), ] # exclude viral reads
+expdata <- expdata[, c(1, 3:ncol(expdata))]
+rownames(expdata) <- expdata[, 1]
+expdata$Geneid <- NULL
+
+A549_expdata <- expdata[, 1:8]
+HBEpC_expdata <- expdata[, 9:20]
+
+```
+
+
+
+#### Exploratory analysis and visualization ####
+```{r warning=FALSE, message=FALSE}
+# Using DESeq2
+coldata <- read.csv("DESeq2_annotation.csv", header=TRUE, row.names=1) # load annotation file for DESeq2
+A549_coldata <- coldata[1:8, ]
+HBEpC_coldata <- coldata[9:20, ]
+
+A549_coldata$combined_condition <- factor(A549_coldata$combined_condition,
+                                          levels=c("mock_12h", "infection_6h",
+                                                   "infection_12h", "infection_24h"))
+HBEpC_coldata$combined_condition <- factor(HBEpC_coldata$combined_condition,
+                                           levels=c("mock_12h", "infection_6h",
+                                                    "infection_12h", "infection_24h"))
+
+
+## Prepare DESeq2 dataset ##
+## Prepare input data
+# It is absolutely critical that the columns of the count matrix and 
+# the rows of the column data (information about samples) are in the same order. 
+all(rownames(A549_coldata) == colnames(A549_expdata))
+all(rownames(HBEpC_coldata) == colnames(HBEpC_expdata))
+# If return "FALSE", run the following codes
+#expdata <- expdata[, rownames(coldata)]
+#all(rownames(coldata) == colnames(expdata))
+# Should return "TRUE"
+
+## construct a DESeqData
+A549_dds <- DESeqDataSetFromMatrix(countData=A549_expdata, 
+                                   colData=A549_coldata, 
+                                   design= ~ combined_condition)
+HBEpC_dds <- DESeqDataSetFromMatrix(countData=HBEpC_expdata, 
+                                    colData=HBEpC_coldata, 
+                                    design= ~ combined_condition + batch)
+
+
+## Add additional feature data, e.g. gene names
+featureData <- geneid_list
+rownames(featureData) <- featureData$id
+featureData <- as.data.frame(featureData[rownames(expdata), ])
+featureData$id <- NULL
+mcols(A549_dds) <- DataFrame(mcols(A549_dds), featureData)
+mcols(A549_dds)
+mcols(HBEpC_dds) <- DataFrame(mcols(HBEpC_dds), featureData)
+mcols(HBEpC_dds)
+
+
+## Pre-filtering ##
+# Filter out genes with less than 1 read in at least two samples in the dataset
+# In another word, we retain only those genes that are represented at least 1 read in at least two samples
+A549_keep <- rowSums(counts(A549_dds)) >= 2
+HBEpC_keep <- rowSums(counts(HBEpC_dds)) >= 2
+
+A549_keep <- A549_keep[rowSums(A549_expdata[A549_keep, ] == 0) <= 6]
+HBEpC_keep <- HBEpC_keep[rowSums(HBEpC_expdata[HBEpC_keep, ] == 0) <= 10]
+
+A549_dds <- A549_dds[A549_keep, ]
+HBEpC_dds <- HBEpC_dds[HBEpC_keep, ]
+nrow(A549_dds) 
+nrow(HBEpC_dds) 
+
+
+## Note on factor levels ##
+A549_dds$combined_condition <- factor(A549_coldata$combined_condition,
+                                      levels=c("mock_12h", "infection_6h",
+                                               "infection_12h", "infection_24h"))
+HBEpC_dds$combined_condition <- factor(HBEpC_coldata$combined_condition,
+                                       levels=c("mock_12h", "infection_6h",
+                                                "infection_12h", "infection_24h"))
+
+
+## The rlog and varlance stabilizing transformations ##
+A549_rld <- rlog(A549_dds, blind=FALSE)
+head(assay(A549_rld), 3)
+
+HBEpC_rld <- rlog(HBEpC_dds, blind=FALSE)
+head(assay(HBEpC_rld), 3)
+
+A549_vsd <- vst(A549_dds, blind = FALSE)
+head(assay(A549_vsd), 3)
+
+HBEpC_vsd <- vst(HBEpC_dds, blind = FALSE)
+head(assay(HBEpC_vsd), 3)
+
+
+# Compare the results from log2 library-size adjusted counts after adding a pseudo count,
+# rld, and vsd using the first sample against the second
+A549_dds <- estimateSizeFactors(A549_dds)
+A549_rld_vsd_compare <- bind_rows(
+  as_data_frame(log2(counts(A549_dds, normalized=TRUE)[, 1:2]+1)) %>%
+    mutate(transformation = "log2(x + 1)"),
+  as_data_frame(assay(A549_rld)[, 1:2]) %>% mutate(transformation="rlog"),
+  as_data_frame(assay(A549_vsd)[, 1:2]) %>% mutate(transformation="vst"))
+ggplot(A549_rld_vsd_compare, aes(x=A549_Mock_1, y=A549_Mock_2)) + 
+  geom_hex(bins = 80) +
+  coord_fixed() + 
+  facet_grid( . ~ transformation)  
+
+HBEpC_dds <- estimateSizeFactors(HBEpC_dds)
+HBEpC_rld_vsd_compare <- bind_rows(
+  as_data_frame(log2(counts(HBEpC_dds, normalized=TRUE)[, 1:2]+1)) %>%
+    mutate(transformation = "log2(x + 1)"),
+  as_data_frame(assay(HBEpC_rld)[, 1:2]) %>% mutate(transformation="rlog"),
+  as_data_frame(assay(HBEpC_vsd)[, 1:2]) %>% mutate(transformation="vst"))
+ggplot(HBEpC_rld_vsd_compare, aes(x=HBEpC_Batch1_Mock_1, y=HBEpC_Batch1_Mock_2)) + 
+  geom_hex(bins = 80) +
+  coord_fixed() + 
+  facet_grid( . ~ transformation)  
+
+
+## Sample distance ##
+# Euclidean distance between samples. 
+A549_sampleDists <- dist(t(assay(A549_rld)))
+A549_sampleDists
+HBEpC_sampleDists <- dist(t(assay(HBEpC_rld)))
+HBEpC_sampleDists
+
+A549_sampleDistMatrix <- as.matrix(A549_sampleDists)
+colnames(A549_sampleDistMatrix) <- NULL
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
+pheatmap(A549_sampleDistMatrix,
+         clustering_distance_rows=A549_sampleDists,
+         clustering_distance_cols=A549_sampleDists,
+         col=colors,
+         fontsize=12)
+
+HBEpC_sampleDistMatrix <- as.matrix(HBEpC_sampleDists)
+colnames(HBEpC_sampleDistMatrix) <- NULL
+pheatmap(HBEpC_sampleDistMatrix,
+         clustering_distance_rows=HBEpC_sampleDists,
+         clustering_distance_cols=HBEpC_sampleDists,
+         col=colors,
+         fontsize=12)
+
+# Heatmap of sample-to-sample distances using the rlog-transformed values
+A549_poisd <- PoissonDistance(t(counts(A549_dds)))
+HBEpC_poisd <- PoissonDistance(t(counts(HBEpC_dds)))
+
+A549_samplePoisDistMatrix <- as.matrix(A549_poisd$dd)
+rownames(A549_samplePoisDistMatrix) <- colnames(A549_expdata)
+pheatmap(A549_samplePoisDistMatrix,
+         clustering_distance_rows=A549_poisd$dd,
+         clustering_distance_cols=A549_poisd$dd,
+         col=colors,
+         fontsize=12)
+
+HBEpC_samplePoisDistMatrix <- as.matrix(HBEpC_poisd$dd)
+rownames(HBEpC_samplePoisDistMatrix) <- colnames(HBEpC_expdata)
+pheatmap(HBEpC_samplePoisDistMatrix,
+         clustering_distance_rows=HBEpC_poisd$dd,
+         clustering_distance_cols=HBEpC_poisd$dd,
+         col=colors,
+         fontsize=12)
+
+
+## PCA plot ##
+A549_pcaData <- plotPCA(A549_rld, intgroup=c("combined_condition"), returnData=TRUE)
+A549_percentVar <- round(100 * attr(A549_pcaData, "percentVar"))
+ggplot(A549_pcaData, aes(PC1, PC2, color=combined_condition)) +
+  geom_point(size=5) +
+  xlab(paste0("PC1: ", A549_percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ", A549_percentVar[2],"% variance")) +
+  labs(color="Conditions") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+HBEpC_pcaData <- plotPCA(HBEpC_rld, intgroup=c("combined_condition", "batch"), 
+                         returnData=TRUE)
+HBEpC_percentVar <- round(100 * attr(HBEpC_pcaData, "percentVar"))
+ggplot(HBEpC_pcaData, aes(PC1, PC2, color=combined_condition, shape=batch)) +
+  geom_point(size=5) +
+  xlab(paste0("PC1: ", A549_percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ", A549_percentVar[2],"% variance")) +
+  labs(color="Conditions", shape="Batch") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+
+## MDS plot ##
+A549_mds <- as.data.frame(colData(A549_rld))  %>%
+  cbind(cmdscale(A549_sampleDistMatrix))
+ggplot(A549_mds, aes(x=`1`, y=`2`, color=combined_condition)) +
+  geom_point(size=5) +
+  labs(color="Conditions", x="MDS_1", y="MDS_2") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+HBEpC_mds <- as.data.frame(colData(HBEpC_rld))  %>%
+  cbind(cmdscale(HBEpC_sampleDistMatrix))
+ggplot(HBEpC_mds, aes(x=`1`, y=`2`, color=combined_condition, shape=batch)) +
+  geom_point(size=5) +
+  labs(color="Conditions", shape="Batch", x="MDS_1", y="MDS_2") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+```
+
+
+
+#### DESeq2 - Differential expression analysis ####
+```{r warning=FALSE, message=FALSE}
+## Multi-factor time-point design ##
+# Run DESeq for A549 and HBEpC separately
+set.seed(777)
+A549_dds <- DESeq(A549_dds)
+HBEpC_dds <- DESeq(HBEpC_dds)
+
+A549_6hvsmock_res <- results(A549_dds, 
+                             contrast=c("combined_condition", 
+                                        "infection_6h", "mock_12h"),
+                             alpha=0.05, lfcThreshold=0)
+A549_6hvsmock_res
+mcols(A549_6hvsmock_res, use.names = TRUE)
+summary(A549_6hvsmock_res)
+table(A549_6hvsmock_res$padj < 0.05) 
+
+A549_12hvsmock_res <- results(A549_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_12h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+A549_12hvsmock_res
+mcols(A549_12hvsmock_res, use.names = TRUE)
+summary(A549_12hvsmock_res)
+table(A549_12hvsmock_res$padj < 0.05) 
+
+A549_24hvsmock_res <- results(A549_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_24h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+A549_24hvsmock_res
+mcols(A549_24hvsmock_res, use.names = TRUE)
+summary(A549_24hvsmock_res)
+table(A549_24hvsmock_res$padj < 0.05) 
+
+HBEpC_6hvsmock_res <- results(HBEpC_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_6h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+HBEpC_6hvsmock_res
+mcols(HBEpC_6hvsmock_res, use.names = TRUE)
+summary(HBEpC_6hvsmock_res)
+table(HBEpC_6hvsmock_res$padj < 0.05) 
+
+HBEpC_12hvsmock_res <- results(HBEpC_dds, 
+                               contrast=c("combined_condition", 
+                                          "infection_12h", "mock_12h"),
+                               alpha=0.05, lfcThreshold=0)
+HBEpC_12hvsmock_res
+mcols(HBEpC_12hvsmock_res, use.names = TRUE)
+summary(HBEpC_12hvsmock_res)
+table(HBEpC_12hvsmock_res$padj < 0.05) 
+
+HBEpC_24hvsmock_res <- results(HBEpC_dds, 
+                               contrast=c("combined_condition", 
+                                          "infection_24h", "mock_12h"),
+                               alpha=0.05, lfcThreshold=0)
+HBEpC_24hvsmock_res
+mcols(HBEpC_24hvsmock_res, use.names = TRUE)
+summary(HBEpC_24hvsmock_res)
+table(HBEpC_24hvsmock_res$padj < 0.05) 
+
+
+# We subset the results table to these genes and then sort it by the log2 fold change 
+# estimate to get the significant genes with the strongest up-regulation:
+A549_6hvsmock_resSig <- subset(A549_6hvsmock_res, padj<0.05)
+A549_6hvsmock_resSig <- A549_6hvsmock_resSig[order(A549_6hvsmock_resSig$log2FoldChange,
+                                                   decreasing=TRUE), ]
+A549_6hvsmock_resSig_df <- as.data.frame(A549_6hvsmock_resSig)
+A549_6hvsmock_resSig_df$Geneid <- rownames(A549_6hvsmock_resSig_df)
+A549_6hvsmock_resSig_df <- merge(A549_6hvsmock_resSig_df, geneid_list, 
+                                 by.x="Geneid", by.y="id")
+A549_6hvsmock_resSig_df <- A549_6hvsmock_resSig_df[order(A549_6hvsmock_resSig_df$log2FoldChange,
+                                                         decreasing=TRUE), ]
+
+A549_12hvsmock_resSig <- subset(A549_12hvsmock_res, padj<0.05)
+A549_12hvsmock_resSig <- A549_12hvsmock_resSig[order(A549_12hvsmock_resSig$log2FoldChange,
+                                                     decreasing=TRUE), ]
+A549_12hvsmock_resSig_df <- as.data.frame(A549_12hvsmock_resSig)
+A549_12hvsmock_resSig_df$Geneid <- rownames(A549_12hvsmock_resSig_df)
+A549_12hvsmock_resSig_df <- merge(A549_12hvsmock_resSig_df, geneid_list, 
+                                  by.x="Geneid", by.y="id")
+A549_12hvsmock_resSig_df <- A549_12hvsmock_resSig_df[order(A549_12hvsmock_resSig_df$log2FoldChange,
+                                                           decreasing=TRUE), ]
+
+A549_24hvsmock_resSig <- subset(A549_24hvsmock_res, padj<0.05)
+A549_24hvsmock_resSig <- A549_24hvsmock_resSig[order(A549_24hvsmock_resSig$log2FoldChange,
+                                                     decreasing=TRUE), ]
+A549_24hvsmock_resSig_df <- as.data.frame(A549_24hvsmock_resSig)
+A549_24hvsmock_resSig_df$Geneid <- rownames(A549_24hvsmock_resSig_df)
+A549_24hvsmock_resSig_df <- merge(A549_24hvsmock_resSig_df, geneid_list, 
+                                  by.x="Geneid", by.y="id")
+A549_24hvsmock_resSig_df <- A549_24hvsmock_resSig_df[order(A549_24hvsmock_resSig_df$log2FoldChange,
+                                                           decreasing=TRUE), ]
+
+
+HBEpC_6hvsmock_resSig <- subset(HBEpC_6hvsmock_res, padj<0.05)
+HBEpC_6hvsmock_resSig <- 
+  HBEpC_6hvsmock_resSig[order(HBEpC_6hvsmock_resSig$log2FoldChange,
+                              decreasing=TRUE), ]
+HBEpC_6hvsmock_resSig_df <- as.data.frame(HBEpC_6hvsmock_resSig)
+HBEpC_6hvsmock_resSig_df$Geneid <- rownames(HBEpC_6hvsmock_resSig_df)
+HBEpC_6hvsmock_resSig_df <- merge(HBEpC_6hvsmock_resSig_df, geneid_list, 
+                                  by.x="Geneid", by.y="id")
+HBEpC_6hvsmock_resSig_df <- 
+  HBEpC_6hvsmock_resSig_df[order(HBEpC_6hvsmock_resSig_df$log2FoldChange,
+                                 decreasing=TRUE), ]
+
+HBEpC_12hvsmock_resSig <- subset(HBEpC_12hvsmock_res, padj<0.05)
+HBEpC_12hvsmock_resSig <- 
+  HBEpC_12hvsmock_resSig[order(HBEpC_12hvsmock_resSig$log2FoldChange,
+                               decreasing=TRUE), ]
+HBEpC_12hvsmock_resSig_df <- as.data.frame(HBEpC_12hvsmock_resSig)
+HBEpC_12hvsmock_resSig_df$Geneid <- rownames(HBEpC_12hvsmock_resSig_df)
+HBEpC_12hvsmock_resSig_df <- merge(HBEpC_12hvsmock_resSig_df, geneid_list, 
+                                   by.x="Geneid", by.y="id")
+HBEpC_12hvsmock_resSig_df <- 
+  HBEpC_12hvsmock_resSig_df[order(HBEpC_12hvsmock_resSig_df$log2FoldChange,
+                                  decreasing=TRUE), ]
+
+HBEpC_24hvsmock_resSig <- subset(HBEpC_24hvsmock_res, padj<0.05)
+HBEpC_24hvsmock_resSig <- 
+  HBEpC_24hvsmock_resSig[order(HBEpC_24hvsmock_resSig$log2FoldChange,
+                               decreasing=TRUE), ]
+HBEpC_24hvsmock_resSig_df <- as.data.frame(HBEpC_24hvsmock_resSig)
+HBEpC_24hvsmock_resSig_df$Geneid <- rownames(HBEpC_24hvsmock_resSig_df)
+HBEpC_24hvsmock_resSig_df <- merge(HBEpC_24hvsmock_resSig_df, geneid_list, 
+                                   by.x="Geneid", by.y="id")
+HBEpC_24hvsmock_resSig_df <- 
+  HBEpC_24hvsmock_resSig_df[order(HBEpC_24hvsmock_resSig_df$log2FoldChange,
+                                  decreasing=TRUE), ]
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+# Export DEG list 
+write.csv(A549_6hvsmock_resSig_df, file="DEGList/A549_6hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(A549_12hvsmock_resSig_df, file="DEGList/A549_12hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(A549_24hvsmock_resSig_df, file="DEGList/A549_24hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+
+write.csv(HBEpC_6hvsmock_resSig_df, file="DEGList/HBEpC_6hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(HBEpC_12hvsmock_resSig_df, file="DEGList/HBEpC_12hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(HBEpC_24hvsmock_resSig_df, file="DEGList/HBEpC_24hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+
+```
+
+
+
+#### edgeR ####
+```{r warning=FALSE, message=FALSE}
+## Create a DEGList object ##
+# Obtain the gene names
+set.seed(777)
+rownames(geneid_list) <- geneid_list$id
+
+A549_dgList <- DGEList(counts=counts(A549_dds), 
+                       genes=geneid_list[rownames(counts(A549_dds)), "name"])
+HBEpC_dgList <- DGEList(counts=counts(HBEpC_dds), 
+                        genes=geneid_list[rownames(counts(HBEpC_dds)), "name"])
+
+
+## Filtering ##
+# Similar to the criteria I used in DESeq2, we retain only those genes 
+# that are represented at least 1 read in at least two samples.
+# So I already directly grab filtered matrix from DESeq2 count matrix.
+
+
+## Normalization - TMM (trimmed mean of M-values (TMM)) ##
+A549_dgList <- calcNormFactors(A549_dgList, method="TMM")
+HBEpC_dgList <- calcNormFactors(HBEpC_dgList, method="TMM")
+
+
+## Data exploration ##
+plotMDS(A549_dgList)
+plotMDS(HBEpC_dgList)
+
+
+## Setting up the Model ##
+CellType <- factor(c(rep("A549", 8), rep("HBEpC", 12)), levels=c("A549", "HBEpC"))
+Condition <- factor(c(rep("mock_12h", 2), rep("infection_6h", 2), 
+                      rep("infection_12h", 2), rep("infection_24h", 2),
+                      rep("mock_12h", 4), rep("infection_6h", 2), 
+                      rep("infection_12h", 4), rep("infection_24h", 2)),
+                    levels=c("mock_12h", "infection_6h", "infection_12h", "infection_24h"))
+Batch <- factor(c(1,1,1,1,1,1,1,1,1,1,2,2,1,1,1,1,2,2,1,1),
+                levels=c(1,2))
+
+A549_combined_condition <- factor(c(rep("mock_12h", 2), rep("infection_6h", 2), 
+                                    rep("infection_12h", 2), rep("infection_24h", 2)),
+                                  levels=c("mock_12h", "infection_6h", 
+                                           "infection_12h", "infection_24h"))
+HBEpC_combined_condition <- factor(c(rep("mock_12h", 4), rep("infection_6h", 2), 
+                                     rep("infection_12h", 4), rep("infection_24h", 2)),
+                                   levels=c("mock_12h", "infection_6h", 
+                                            "infection_12h", "infection_24h"))
+HBEpC_batch <- factor(c(1,1,2,2,1,1,1,1,2,2,1,1), levels=c(1,2))
+
+# Add "0+" will change the first contrast from "intercept" to the baseline
+A549_designMat <- model.matrix(~ 0 + A549_combined_condition)
+HBEpC_designMat <- model.matrix(~ 0 + HBEpC_combined_condition + HBEpC_batch)
+
+
+## Estimating Dispersions ##
+A549_dgList <- estimateGLMCommonDisp(A549_dgList, design=A549_designMat)
+A549_dgList <- estimateGLMTrendedDisp(A549_dgList, design=A549_designMat)
+A549_dgList <- estimateGLMTagwiseDisp(A549_dgList, design=A549_designMat)
+
+HBEpC_dgList <- estimateGLMCommonDisp(HBEpC_dgList, design=HBEpC_designMat)
+HBEpC_dgList <- estimateGLMTrendedDisp(HBEpC_dgList, design=HBEpC_designMat)
+HBEpC_dgList <- estimateGLMTagwiseDisp(HBEpC_dgList, design=HBEpC_designMat)
+
+# Plot the estimates and see how they differ. 
+plotBCV(A549_dgList)
+plotBCV(HBEpC_dgList)
+
+
+##  Differential Expression ##
+A549_fit <- glmQLFit(A549_dgList, A549_designMat)
+HBEpC_fit <- glmQLFit(HBEpC_dgList, HBEpC_designMat)
+
+A549_qlf_6hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,1,0,0))
+A549_qlf_12hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,0,1,0))
+A549_qlf_24hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,0,0,1))
+
+HBEpC_qlf_6hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,1,0,0,0))
+HBEpC_qlf_12hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,0,1,0,0))
+HBEpC_qlf_24hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,0,0,1,0))
+
+# Print all the DEGs. Change "n=" to a smaller value will only print required top n genes.
+A549_6hvsmock_edgeR <- topTags(A549_qlf_6hvsmock, sort.by="logFC", 
+                               p.value=0.05, n=20000)[["table"]] 
+A549_12hvsmock_edgeR <- topTags(A549_qlf_12hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+A549_24hvsmock_edgeR <- topTags(A549_qlf_24hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+
+HBEpC_6hvsmock_edgeR <- topTags(HBEpC_qlf_6hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+HBEpC_12hvsmock_edgeR <- topTags(HBEpC_qlf_12hvsmock, sort.by="logFC", 
+                                 p.value=0.05, n=20000)[["table"]] 
+HBEpC_24hvsmock_edgeR <- topTags(HBEpC_qlf_24hvsmock, sort.by="logFC", 
+                                 p.value=0.05, n=20000)[["table"]] 
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+## Export DEG lists ##
+write.csv(A549_6hvsmock_edgeR, file="DEGList/A549_6hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(A549_12hvsmock_edgeR, file="DEGList/A549_12hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(A549_24hvsmock_edgeR, file="DEGList/A549_24hpi-vs-mock_edgeR_DEGlist.csv")
+
+write.csv(HBEpC_6hvsmock_edgeR, file="DEGList/HBEpC_6hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(HBEpC_12hvsmock_edgeR, file="DEGList/HBEpC_12hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(HBEpC_24hvsmock_edgeR, file="DEGList/HBEpC_24hpi-vs-mock_edgeR_DEGlist.csv")
+
+```
+
+
+
+###### Summarize DESeq2 and edgeR results ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+
+```
+
+#### A549 24hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_24hvsmock <- read.csv("DEGList/A549_24hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_A549_24hvsmock <- DESeq2_A549_24hvsmock[, -1]
+colnames(DESeq2_A549_24hvsmock)[7] <- "Gene"
+
+edgeR_A549_24hvsmock <- read.csv("DEGList/A549_24hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_24hvsmock)[1] <- "Gene"
+
+A549_24hvsmock_intersect <- merge(DESeq2_A549_24hvsmock, edgeR_A549_24hvsmock, by="Gene")
+colnames(A549_24hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_24hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_24hvsmock_intersect$DESeq2_log2FC)
+A549_24hvsmock_intersect <- 
+  A549_24hvsmock_intersect[order(A549_24hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+A549_24hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_24hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_24hvsmock_intersect$edgeR_abslogFC <- abs(A549_24hvsmock_intersect$edgeR_logFC)
+A549_24hvsmock_intersect <- 
+  A549_24hvsmock_intersect[order(A549_24hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+A549_24hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_24hvsmock_intersect), 1)
+
+A549_24hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_24hvsmock_intersect$Geneid),
+                                                   A549_24hvsmock_intersect$DEseq2_rank,
+                                                   A549_24hvsmock_intersect$edgeR_rank,
+                                                   A549_24hvsmock_intersect$DESeq2_log2FC,
+                                                   A549_24hvsmock_intersect$DESeq2_abslog2FC,
+                                                   A549_24hvsmock_intersect$DESeq2_padj,
+                                                   A549_24hvsmock_intersect$edgeR_logFC,
+                                                   A549_24hvsmock_intersect$edgeR_abslogFC,
+                                                   A549_24hvsmock_intersect$edgeR_FDR))
+colnames(A549_24hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(A549_24hvsmock_intersect_df, 
+          file="DEGList/A549_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+# Top10 DEGs identified in both packages
+top10_DEGs_A549 <- A549_24hvsmock_intersect_df[1:10, ]$Gene_name
+top10_DEGs_A549
+
+```
+
+
+
+#### 12hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_12hvsmock <- read.csv("DEGList/A549_12hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_A549_12hvsmock <- DESeq2_A549_12hvsmock[, -1]
+colnames(DESeq2_A549_12hvsmock)[7] <- "Gene"
+
+edgeR_A549_12hvsmock <- read.csv("DEGList/A549_12hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_12hvsmock)[1] <- "Gene"
+
+A549_12hvsmock_intersect <- merge(DESeq2_A549_12hvsmock, edgeR_A549_12hvsmock, by="Gene")
+colnames(A549_12hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_12hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_12hvsmock_intersect$DESeq2_log2FC)
+A549_12hvsmock_intersect <- 
+  A549_12hvsmock_intersect[order(A549_12hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+A549_12hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_12hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_12hvsmock_intersect$edgeR_abslogFC <- abs(A549_12hvsmock_intersect$edgeR_logFC)
+A549_12hvsmock_intersect <- 
+  A549_12hvsmock_intersect[order(A549_12hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+A549_12hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_12hvsmock_intersect), 1)
+
+A549_12hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_12hvsmock_intersect$Geneid),
+                                                   as.character(A549_12hvsmock_intersect$Gene_name),
+                                                   A549_12hvsmock_intersect$DEseq2_rank,
+                                                   A549_12hvsmock_intersect$edgeR_rank,
+                                                   A549_12hvsmock_intersect$DESeq2_log2FC,
+                                                   A549_12hvsmock_intersect$DESeq2_abslog2FC,
+                                                   A549_12hvsmock_intersect$DESeq2_padj,
+                                                   A549_12hvsmock_intersect$edgeR_logFC,
+                                                   A549_12hvsmock_intersect$edgeR_abslogFC,
+                                                   A549_12hvsmock_intersect$edgeR_FDR))
+colnames(A549_12hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(A549_12hvsmock_intersect_df, 
+          file="DEGList/A549_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### 6hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_6hvsmock <- read.csv("DEGList/A549_6hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_A549_6hvsmock <- DESeq2_A549_6hvsmock[, -1]
+colnames(DESeq2_A549_6hvsmock)[7] <- "Gene"
+
+edgeR_A549_6hvsmock <- read.csv("DEGList/A549_6hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_6hvsmock)[1] <- "Gene"
+
+A549_6hvsmock_intersect <- merge(DESeq2_A549_6hvsmock, edgeR_A549_6hvsmock, by="Gene")
+colnames(A549_6hvsmock_intersect) <- c("Geneid", 
+                                       "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                       "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                       "edgeR_logFC", "edgeR_logCPM",
+                                       "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_6hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_6hvsmock_intersect$DESeq2_log2FC)
+A549_6hvsmock_intersect <- 
+  A549_6hvsmock_intersect[order(A549_6hvsmock_intersect$DESeq2_abslog2FC, 
+                                decreasing=TRUE), ]
+A549_6hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_6hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_6hvsmock_intersect$edgeR_abslogFC <- abs(A549_6hvsmock_intersect$edgeR_logFC)
+A549_6hvsmock_intersect <- 
+  A549_6hvsmock_intersect[order(A549_6hvsmock_intersect$edgeR_abslogFC, 
+                                decreasing=TRUE), ]
+A549_6hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_6hvsmock_intersect), 1)
+
+A549_6hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_6hvsmock_intersect$Geneid),
+                                                  as.character(A549_6hvsmock_intersect$Gene_name),
+                                                  A549_6hvsmock_intersect$DEseq2_rank,
+                                                  A549_6hvsmock_intersect$edgeR_rank,
+                                                  A549_6hvsmock_intersect$DESeq2_log2FC,
+                                                  A549_6hvsmock_intersect$DESeq2_abslog2FC,
+                                                  A549_6hvsmock_intersect$DESeq2_padj,
+                                                  A549_6hvsmock_intersect$edgeR_logFC,
+                                                  A549_6hvsmock_intersect$edgeR_abslogFC,
+                                                  A549_6hvsmock_intersect$edgeR_FDR))
+colnames(A549_6hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                          "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                          "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(A549_6hvsmock_intersect_df, 
+          file="DEGList/A549_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### HBEpC 24hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_24hvsmock <- read.csv("DEGList/HBEpC_24hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_HBEpC_24hvsmock <- DESeq2_HBEpC_24hvsmock[, -1]
+colnames(DESeq2_HBEpC_24hvsmock)[7] <- "Gene"
+
+edgeR_HBEpC_24hvsmock <- read.csv("DEGList/HBEpC_24hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_24hvsmock)[1] <- "Gene"
+
+HBEpC_24hvsmock_intersect <- merge(DESeq2_HBEpC_24hvsmock, edgeR_HBEpC_24hvsmock, by="Gene")
+colnames(HBEpC_24hvsmock_intersect) <- c("Geneid", 
+                                         "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                         "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                         "edgeR_logFC", "edgeR_logCPM",
+                                         "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_24hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_24hvsmock_intersect$DESeq2_log2FC)
+HBEpC_24hvsmock_intersect <- 
+  HBEpC_24hvsmock_intersect[order(HBEpC_24hvsmock_intersect$DESeq2_abslog2FC, 
+                                  decreasing=TRUE), ]
+HBEpC_24hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_24hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_24hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_24hvsmock_intersect$edgeR_logFC)
+HBEpC_24hvsmock_intersect <- 
+  HBEpC_24hvsmock_intersect[order(HBEpC_24hvsmock_intersect$edgeR_abslogFC, 
+                                  decreasing=TRUE), ]
+HBEpC_24hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_24hvsmock_intersect), 1)
+
+HBEpC_24hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_24hvsmock_intersect$Geneid),
+                                                    HBEpC_24hvsmock_intersect$DEseq2_rank,
+                                                    HBEpC_24hvsmock_intersect$edgeR_rank,
+                                                    HBEpC_24hvsmock_intersect$DESeq2_log2FC,
+                                                    HBEpC_24hvsmock_intersect$DESeq2_abslog2FC,
+                                                    HBEpC_24hvsmock_intersect$DESeq2_padj,
+                                                    HBEpC_24hvsmock_intersect$edgeR_logFC,
+                                                    HBEpC_24hvsmock_intersect$edgeR_abslogFC,
+                                                    HBEpC_24hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_24hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                            "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                            "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(HBEpC_24hvsmock_intersect_df, 
+          file="DEGList/HBEpC_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+# Top10 DEGs identified in both packages
+top10_DEGs_HBEpC <- HBEpC_24hvsmock_intersect_df[1:10, ]$Gene_name
+top10_DEGs_HBEpC
+
+```
+
+
+
+#### 12hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_12hvsmock <- read.csv("DEGList/HBEpC_12hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_HBEpC_12hvsmock <- DESeq2_HBEpC_12hvsmock[, -1]
+colnames(DESeq2_HBEpC_12hvsmock)[7] <- "Gene"
+
+edgeR_HBEpC_12hvsmock <- read.csv("DEGList/HBEpC_12hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_12hvsmock)[1] <- "Gene"
+
+HBEpC_12hvsmock_intersect <- merge(DESeq2_HBEpC_12hvsmock, edgeR_HBEpC_12hvsmock, by="Gene")
+colnames(HBEpC_12hvsmock_intersect) <- c("Geneid", 
+                                         "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                         "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                         "edgeR_logFC", "edgeR_logCPM",
+                                         "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_12hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_12hvsmock_intersect$DESeq2_log2FC)
+HBEpC_12hvsmock_intersect <- 
+  HBEpC_12hvsmock_intersect[order(HBEpC_12hvsmock_intersect$DESeq2_abslog2FC, 
+                                  decreasing=TRUE), ]
+HBEpC_12hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_12hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_12hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_12hvsmock_intersect$edgeR_logFC)
+HBEpC_12hvsmock_intersect <- 
+  HBEpC_12hvsmock_intersect[order(HBEpC_12hvsmock_intersect$edgeR_abslogFC, 
+                                  decreasing=TRUE), ]
+HBEpC_12hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_12hvsmock_intersect), 1)
+
+HBEpC_12hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_12hvsmock_intersect$Geneid),
+                                                    as.character(HBEpC_12hvsmock_intersect$Gene_name),
+                                                    HBEpC_12hvsmock_intersect$DEseq2_rank,
+                                                    HBEpC_12hvsmock_intersect$edgeR_rank,
+                                                    HBEpC_12hvsmock_intersect$DESeq2_log2FC,
+                                                    HBEpC_12hvsmock_intersect$DESeq2_abslog2FC,
+                                                    HBEpC_12hvsmock_intersect$DESeq2_padj,
+                                                    HBEpC_12hvsmock_intersect$edgeR_logFC,
+                                                    HBEpC_12hvsmock_intersect$edgeR_abslogFC,
+                                                    HBEpC_12hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_12hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                            "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                            "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(HBEpC_12hvsmock_intersect_df, 
+          file="DEGList/HBEpC_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### 6hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_6hvsmock <- read.csv("DEGList/HBEpC_6hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+DESeq2_HBEpC_6hvsmock <- DESeq2_HBEpC_6hvsmock[, -1]
+colnames(DESeq2_HBEpC_6hvsmock)[7] <- "Gene"
+
+edgeR_HBEpC_6hvsmock <- read.csv("DEGList/HBEpC_6hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_6hvsmock)[1] <- "Gene"
+
+HBEpC_6hvsmock_intersect <- merge(DESeq2_HBEpC_6hvsmock, edgeR_HBEpC_6hvsmock, by="Gene")
+colnames(HBEpC_6hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_6hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_6hvsmock_intersect$DESeq2_log2FC)
+HBEpC_6hvsmock_intersect <- 
+  HBEpC_6hvsmock_intersect[order(HBEpC_6hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+HBEpC_6hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_6hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_6hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_6hvsmock_intersect$edgeR_logFC)
+HBEpC_6hvsmock_intersect <- 
+  HBEpC_6hvsmock_intersect[order(HBEpC_6hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+HBEpC_6hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_6hvsmock_intersect), 1)
+
+HBEpC_6hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_6hvsmock_intersect$Geneid),
+                                                   as.character(HBEpC_6hvsmock_intersect$Gene_name),
+                                                   HBEpC_6hvsmock_intersect$DEseq2_rank,
+                                                   HBEpC_6hvsmock_intersect$edgeR_rank,
+                                                   HBEpC_6hvsmock_intersect$DESeq2_log2FC,
+                                                   HBEpC_6hvsmock_intersect$DESeq2_abslog2FC,
+                                                   HBEpC_6hvsmock_intersect$DESeq2_padj,
+                                                   HBEpC_6hvsmock_intersect$edgeR_logFC,
+                                                   HBEpC_6hvsmock_intersect$edgeR_abslogFC,
+                                                   HBEpC_6hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_6hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+write.csv(HBEpC_6hvsmock_intersect_df, 
+          file="DEGList/HBEpC_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+###### Check the logFC of top 10 DEGs over the course of the infection in the bulk RNA-seq data ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(reshape)
+
+```
+
+
+
+#### A549 ####
+#### Load A549 3 timepoints vs mock DEG lists ####
+```{r warning=FALSE, message=FALSE}
+A549_6hvsmock <- read.csv("DEGList/A549_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+A549_12hvsmock <- read.csv("DEGList/A549_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+A549_24hvsmock <- read.csv("DEGList/A549_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+
+A549_6hvsmock$Gene_name <- as.character(A549_6hvsmock$Gene_name)
+A549_12hvsmock$Gene_name <- as.character(A549_12hvsmock$Gene_name)
+A549_24hvsmock$Gene_name <- as.character(A549_24hvsmock$Gene_name)
+
+```
+
+
+
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive <- as.character(A549_24hvsmock[1:10, "Gene_name"])
+
+A549_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=A549_24h_top10_positive,
+             "log2FC_24hpi"=A549_24hvsmock[A549_24hvsmock$Gene_name %in% A549_24h_top10_positive, 
+                                           "ave_logFC"])
+
+```
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_6hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c(1, 2, ncol(A549_24h_top10_positive_log2FC))]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                       decreasing=TRUE), ]
+colnames(A549_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_12hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c(1:3, ncol(A549_24h_top10_positive_log2FC))]
+colnames(A549_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+A549_24h_top10_positive_log2FC <- A549_24h_top10_positive_log2FC[, c(1,3,4,2)]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi,
+                                       decreasing=TRUE), ]
+
+```
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive_log2FC_melt <- A549_24h_top10_positive_log2FC
+A549_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(A549_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=A549_24h_top10_positive_log2FC_melt$Gene_name)
+A549_24h_top10_positive_log2FC_melt <- melt(A549_24h_top10_positive_log2FC_melt,
+                                            id.vars="Gene_name")
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(A549_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(A549_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+
+#### Plot the log2FC from edgeR ####
+```{r warning=FALSE, message=FALSE}
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+A549_24h_top10_positive <- as.character(A549_24hvsmock[1:10, "Gene_name"])
+
+A549_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=A549_24h_top10_positive,
+             "log2FC_24hpi"=A549_24hvsmock[A549_24hvsmock$Gene_name %in% A549_24h_top10_positive, 
+                                           "edgeR_logFC"])
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_6hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "edgeR_logFC")]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                       decreasing=TRUE), ]
+colnames(A549_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_12hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "log2FC_6hpi", "edgeR_logFC")]
+colnames(A549_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+A549_24h_top10_positive_log2FC <- A549_24h_top10_positive_log2FC[, c(1,3,4,2)]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi,
+                                       decreasing=TRUE), ]
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+A549_24h_top10_positive_log2FC_melt <- A549_24h_top10_positive_log2FC
+A549_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(A549_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=A549_24h_top10_positive_log2FC_melt$Gene_name)
+A549_24h_top10_positive_log2FC_melt <- melt(A549_24h_top10_positive_log2FC_melt,
+                                            id.vars="Gene_name")
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(A549_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(A549_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+#### HBEpC ####
+#### Load HBEpC 3 timepoints vs mock DEG lists ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_6hvsmock <- read.csv("DEGList/HBEpC_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+HBEpC_12hvsmock <- read.csv("DEGList/HBEpC_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+HBEpC_24hvsmock <- read.csv("DEGList/HBEpC_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+
+HBEpC_6hvsmock$Gene_name <- as.character(HBEpC_6hvsmock$Gene_name)
+HBEpC_12hvsmock$Gene_name <- as.character(HBEpC_12hvsmock$Gene_name)
+HBEpC_24hvsmock$Gene_name <- as.character(HBEpC_24hvsmock$Gene_name)
+
+```
+
+
+
+#### Get the top10 positive/negative DEGs based on log2FC at 24hpi ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive <- as.character(HBEpC_24hvsmock[1:10, "Gene_name"])
+
+HBEpC_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=HBEpC_24h_top10_positive,
+             "log2FC_24hpi"=HBEpC_24hvsmock[HBEpC_24hvsmock$Gene_name %in% HBEpC_24h_top10_positive, 
+                                            "ave_logFC"])
+
+```
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_6hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c(1, 2, ncol(HBEpC_24h_top10_positive_log2FC))]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                        decreasing=TRUE), ]
+colnames(HBEpC_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_12hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c(1:3, ncol(HBEpC_24h_top10_positive_log2FC))]
+colnames(HBEpC_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+HBEpC_24h_top10_positive_log2FC <- HBEpC_24h_top10_positive_log2FC[, c(1,3,4,2)]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi,
+                                        decreasing=TRUE), ]
+
+```
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive_log2FC_melt <- HBEpC_24h_top10_positive_log2FC
+HBEpC_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(HBEpC_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=HBEpC_24h_top10_positive_log2FC_melt$Gene_name)
+HBEpC_24h_top10_positive_log2FC_melt <- melt(HBEpC_24h_top10_positive_log2FC_melt,
+                                             id.vars="Gene_name")
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(HBEpC_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(HBEpC_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+
+#### Plot the log2FC from edgeR ####
+```{r warning=FALSE, message=FALSE}
+#### Get the top10 positive/negative DEGs based on log2FC at 24hpi ####
+HBEpC_24h_top10_positive <- as.character(HBEpC_24hvsmock[1:10, "Gene_name"])
+
+HBEpC_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=HBEpC_24h_top10_positive,
+             "log2FC_24hpi"=HBEpC_24hvsmock[HBEpC_24hvsmock$Gene_name %in% HBEpC_24h_top10_positive, 
+                                            "edgeR_logFC"])
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_6hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "edgeR_logFC")]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                        decreasing=TRUE), ]
+colnames(HBEpC_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_12hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "log2FC_6hpi", "edgeR_logFC")]
+colnames(HBEpC_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+HBEpC_24h_top10_positive_log2FC <- HBEpC_24h_top10_positive_log2FC[, c(1,3,4,2)]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi,
+                                        decreasing=TRUE), ]
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+HBEpC_24h_top10_positive_log2FC_melt <- HBEpC_24h_top10_positive_log2FC
+HBEpC_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(HBEpC_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=HBEpC_24h_top10_positive_log2FC_melt$Gene_name)
+HBEpC_24h_top10_positive_log2FC_melt <- melt(HBEpC_24h_top10_positive_log2FC_melt,
+                                             id.vars="Gene_name")
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(HBEpC_24h_top10_positive_log2FC_melt$variable))
+HBEpC_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(HBEpC_24h_top10_positive_log2FC_melt$Gene_name, 
+         levels=HBEpC_24h_top10_positive)
+
+ggplot(HBEpC_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  scale_y_continuous(breaks=seq(2, 14, 4), limits=c(2, 14)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+
+###### Check the expression frequency and level in the single-cell data ######
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(ggplot2)
+library(reshape)
+library(plyr)
+
+```
+
+
+
+#### Load A549 sc host expression data ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/A549/A549_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+# Note A549_withcc@data stores the library size normalized and log-transformed data
+
+```
+
+
+
+#### Plot the expression levels of top 10 DEGs detected at 24hpi bulk ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_bulk_top10pos_DEGs <- c("IFNL2", "IFNL1", "IFNL3", "IFNB1", "RSAD2", "CXCL10",
+                                 "GBP4", "IDO1", "CH25H", "GBP5")
+
+VlnPlot(A549_withcc, features.plot=A549_24h_bulk_top10pos_DEGs, group.by="ident",
+        point.size.use=0.05, size.x.use=15, size.title.use=15)
+# size 10x8
+
+# Plot the percentage of cells with the genes expressed
+A549_withcc_data <- A549_withcc@data
+A549_withcc_data <- as.matrix(A549_withcc_data)
+A549_withcc_data_mock <- A549_withcc_data[, 1:5013]
+A549_withcc_data_6h <- A549_withcc_data[, 5014:(5014+3222)]
+A549_withcc_data_12h <- A549_withcc_data[, (5014+3223):(5014+3223+3205)]
+A549_withcc_data_24h <- A549_withcc_data[, (5014+3223+3206):ncol(A549_withcc_data)]
+
+A549_withcc_data_mock_top10pos <- A549_withcc_data_mock[A549_24h_bulk_top10pos_DEGs, ]
+A549_withcc_data_6h_top10pos <- A549_withcc_data_6h[A549_24h_bulk_top10pos_DEGs, ]
+A549_withcc_data_12h_top10pos <- A549_withcc_data_12h[A549_24h_bulk_top10pos_DEGs, ]
+A549_withcc_data_24h_top10pos <- A549_withcc_data_24h[A549_24h_bulk_top10pos_DEGs, ]
+
+A549_withcc_data_mock_top10pos_numbercell <- as.data.frame(rowSums(A549_withcc_data_mock_top10pos != 0))
+A549_withcc_data_6h_top10pos_numbercell <- as.data.frame(rowSums(A549_withcc_data_6h_top10pos != 0))
+A549_withcc_data_12h_top10pos_numbercell <- as.data.frame(rowSums(A549_withcc_data_12h_top10pos != 0))
+A549_withcc_data_24h_top10pos_numbercell <- as.data.frame(rowSums(A549_withcc_data_24h_top10pos != 0))
+
+A549_withcc_data_mock_top10pos_numbercell$gene <- rownames(A549_withcc_data_mock_top10pos_numbercell)
+A549_withcc_data_6h_top10pos_numbercell$gene <- rownames(A549_withcc_data_6h_top10pos_numbercell)
+A549_withcc_data_12h_top10pos_numbercell$gene <- rownames(A549_withcc_data_12h_top10pos_numbercell)
+A549_withcc_data_24h_top10pos_numbercell$gene <- rownames(A549_withcc_data_24h_top10pos_numbercell)
+
+A549_withcc_data_top10pos_numbercell <- merge(A549_withcc_data_mock_top10pos_numbercell, 
+                                              A549_withcc_data_6h_top10pos_numbercell,
+                                              by="gene")
+A549_withcc_data_top10pos_numbercell <- merge(A549_withcc_data_top10pos_numbercell, 
+                                              A549_withcc_data_12h_top10pos_numbercell,
+                                              by="gene")
+A549_withcc_data_top10pos_numbercell <- merge(A549_withcc_data_top10pos_numbercell, 
+                                              A549_withcc_data_24h_top10pos_numbercell,
+                                              by="gene")
+colnames(A549_withcc_data_top10pos_numbercell) <- c("Gene", "Mock", "6hpi", "12hpi", "24hpi")
+A549_withcc_data_top10pos_numbercell_p <- 
+  100*sweep(as.matrix(A549_withcc_data_top10pos_numbercell[, -1]), 2, c(5013, 3223, 3206, 1903),  "/")
+A549_withcc_data_top10pos_numbercell_p <- as.data.frame(A549_withcc_data_top10pos_numbercell_p)
+A549_withcc_data_top10pos_numbercell_p$Gene <- A549_withcc_data_top10pos_numbercell$Gene
+
+A549_withcc_data_top10pos_numbercell_p_melt <- melt(A549_withcc_data_top10pos_numbercell_p,
+                                                    id.vars="Gene")
+A549_withcc_data_top10pos_numbercell_p_melt$variable <-
+  factor(A549_withcc_data_top10pos_numbercell_p_melt$variable, 
+         levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+A549_withcc_data_top10pos_numbercell_p_melt$value <- 
+  round(A549_withcc_data_top10pos_numbercell_p_melt$value, digits=2)
+A549_withcc_data_top10pos_numbercell_p_melt$Gene <- 
+  factor(A549_withcc_data_top10pos_numbercell_p_melt$Gene,
+         levels=c("IFNL2", "IFNL1", "IFNL3", "IFNB1", "RSAD2", "CXCL10", "GBP4", "IDO1",
+                  "CH25H", "GBP5"))
+
+ggplot(A549_withcc_data_top10pos_numbercell_p_melt, aes(x=variable, y=value, fill=variable)) +
+  geom_bar(stat="identity") +
+  geom_text(vjust=-0.3, aes(label=value)) +
+  facet_wrap(~Gene, ncol=4) +
+  theme(text=element_text(size=15),
+        legend.position="none") +
+  labs(x="Samples", y="Percentage of cells with corresponding genes expressed", 
+       fill="Samples") +
+  scale_fill_manual(values=c("lightcoral", "gold", "lightgreen", "deepskyblue3")) +
+  scale_y_continuous(limits=c(0, 100))
+
+```
+
+
+
+#### Load HBEpC sc host expression data ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/HBEpC/HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+# Note HBEpC@data stores the library size normalized and log-transformed data
+
+```
+
+
+#### Plot the heatmap and other figures of the expression levels of top 10 positive DEGs detected at 24hpi bulk ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_bulk_top10pos_DEGs <- c("IFI44L", "CMPK2", "CXCL10", "IFIT1", "IFNL1", "BST2",
+                                  "IFNB1", "OASL", "IFNL3", "XAF1")
+
+HBEpC_withcc@meta.data$orig.ident <- gsub("HBEpC_", "", HBEpC_withcc@meta.data$orig.ident)
+HBEpC_withcc@meta.data$orig.ident <- 
+  factor(HBEpC_withcc@meta.data$orig.ident, levels=c("Mock", "6h", "12h", "24h"))
+
+VlnPlot(HBEpC_withcc, features.plot=HBEpC_24h_bulk_top10pos_DEGs, 
+        group.by="orig.ident", point.size.use=0.05, size.x.use=15, size.title.use=15)
+
+# Plot the percentage of cells with the genes expressed
+HBEpC_data <- HBEpC_withcc@data
+HBEpC_data <- as.matrix(HBEpC_data)
+HBEpC_data_mock <- HBEpC_data[, 1:2570]
+HBEpC_data_6h <- HBEpC_data[, 2571:(2570+3645)]
+HBEpC_data_12h <- HBEpC_data[, (2570+3645+1):(2570+3645+3021)]
+HBEpC_data_24h <- HBEpC_data[, (2570+3645+3021+1):ncol(HBEpC_data)]
+
+HBEpC_data_mock_top10pos <- HBEpC_data_mock[HBEpC_24h_bulk_top10pos_DEGs, ]
+HBEpC_data_6h_top10pos <- HBEpC_data_6h[HBEpC_24h_bulk_top10pos_DEGs, ]
+HBEpC_data_12h_top10pos <- HBEpC_data_12h[HBEpC_24h_bulk_top10pos_DEGs, ]
+HBEpC_data_24h_top10pos <- HBEpC_data_24h[HBEpC_24h_bulk_top10pos_DEGs, ]
+
+HBEpC_data_mock_top10pos_numbercell <- as.data.frame(rowSums(HBEpC_data_mock_top10pos != 0))
+HBEpC_data_6h_top10pos_numbercell <- as.data.frame(rowSums(HBEpC_data_6h_top10pos != 0))
+HBEpC_data_12h_top10pos_numbercell <- as.data.frame(rowSums(HBEpC_data_12h_top10pos != 0))
+HBEpC_data_24h_top10pos_numbercell <- as.data.frame(rowSums(HBEpC_data_24h_top10pos != 0))
+
+HBEpC_data_mock_top10pos_numbercell$gene <- rownames(HBEpC_data_mock_top10pos_numbercell)
+HBEpC_data_6h_top10pos_numbercell$gene <- rownames(HBEpC_data_6h_top10pos_numbercell)
+HBEpC_data_12h_top10pos_numbercell$gene <- rownames(HBEpC_data_12h_top10pos_numbercell)
+HBEpC_data_24h_top10pos_numbercell$gene <- rownames(HBEpC_data_24h_top10pos_numbercell)
+
+HBEpC_data_top10pos_numbercell <- merge(HBEpC_data_mock_top10pos_numbercell, 
+                                        HBEpC_data_6h_top10pos_numbercell,
+                                        by="gene")
+HBEpC_data_top10pos_numbercell <- merge(HBEpC_data_top10pos_numbercell, 
+                                        HBEpC_data_12h_top10pos_numbercell,
+                                        by="gene")
+HBEpC_data_top10pos_numbercell <- merge(HBEpC_data_top10pos_numbercell, 
+                                        HBEpC_data_24h_top10pos_numbercell,
+                                        by="gene")
+colnames(HBEpC_data_top10pos_numbercell) <- c("Gene", "Mock", "6hpi", "12hpi", "24hpi")
+HBEpC_data_top10pos_numbercell_p <- 
+  100*sweep(as.matrix(HBEpC_data_top10pos_numbercell[, -1]), 2, c(2570, 3645, 3021, 3178),  "/")
+HBEpC_data_top10pos_numbercell_p <- as.data.frame(HBEpC_data_top10pos_numbercell_p)
+HBEpC_data_top10pos_numbercell_p$Gene <- HBEpC_data_top10pos_numbercell$Gene
+
+HBEpC_data_top10pos_numbercell_p_melt <- melt(HBEpC_data_top10pos_numbercell_p,
+                                              id.vars="Gene")
+HBEpC_data_top10pos_numbercell_p_melt$variable <-
+  factor(HBEpC_data_top10pos_numbercell_p_melt$variable, 
+         levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+HBEpC_data_top10pos_numbercell_p_melt$value <- 
+  round(HBEpC_data_top10pos_numbercell_p_melt$value, digits=2)
+HBEpC_data_top10pos_numbercell_p_melt$Gene <- 
+  factor(HBEpC_data_top10pos_numbercell_p_melt$Gene,
+         levels=c("IFI44L", "CMPK2", "CXCL10", "IFIT1", "IFNL1", "BST2", "IFNB1", "OASL",
+                  "IFNL3", "XAF1"))
+
+ggplot(HBEpC_data_top10pos_numbercell_p_melt, aes(x=variable, y=value, fill=variable)) +
+  geom_bar(stat="identity") +
+  geom_text(vjust=-0.3, aes(label=value)) +
+  facet_wrap(~Gene, ncol=4) +
+  theme(text=element_text(size=15),
+        legend.position="none") +
+  labs(x="Samples", y="Percentage of cells with corresponding genes expressed", 
+       fill="Samples") +
+  scale_fill_manual(values=c("lightcoral", "gold", "lightgreen", "deepskyblue3")) +
+  scale_y_continuous(limits=c(0, 100))
+
+```
+
+
+
+###### Merge single-cell RNA-seq to mimic bulk RNA-seq data for DE analysis ######
+```{r warning=FALSE, message=FALSE}
+library(dplyr)
+library(edgeR)
+library(PoiClaClu)
+library(genefilter)
+
+```
+
+
+
+#### Load data ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S1_A549-Mock.RData")
+load("../CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S2_A549-6h.RData")
+load("../CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S3_A549-12h.RData")
+load("../CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S4_A549-24h.RData")
+
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s5_HBEpC-Mock.RData")
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s6_HBEpC-6h.RData")
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s7_HBEpC-12h.RData")
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_s8_HBEpC-24h.RData")
+
+```
+
+
+
+#### Extract only the host genes ####
+```{r warning=FALSE, message=FALSE}
+s2 <- s2[1:(nrow(s2)-8), ]
+s3 <- s3[1:(nrow(s3)-8), ]
+s4 <- s4[1:(nrow(s4)-8), ]
+
+s6 <- s6[1:(nrow(s6)-8), ]
+s7 <- s7[1:(nrow(s7)-8), ]
+s8 <- s8[1:(nrow(s8)-8), ]
+
+```
+
+
+
+#### Merge single-cell data ####
+```{r warning=FALSE, message=FALSE}
+set.seed(777)
+s1_part1 <- s1[, sample(ncol(s1), floor(ncol(s1)/2))]
+s1_part2 <- s1
+s1_part2[, colnames(s1_part1)] <- NULL
+s1_part2 <- s1_part2[, 1:floor(ncol(s1)/2)]
+
+set.seed(777)
+s2_part1 <- s2[, sample(ncol(s2), floor(ncol(s2)/2))]
+s2_part2 <- s2
+s2_part2[, colnames(s2_part1)] <- NULL
+s2_part2 <- s2_part2[, 1:floor(ncol(s2)/2)]
+
+set.seed(777)
+s3_part1 <- s3[, sample(ncol(s3), floor(ncol(s3)/2))]
+s3_part2 <- s3
+s3_part2[, colnames(s3_part1)] <- NULL
+
+set.seed(777)
+s4_part1 <- s4[, sample(ncol(s4), floor(ncol(s4)/2))]
+s4_part2 <- s4
+s4_part2[, colnames(s4_part1)] <- NULL
+s4_part2 <- s4_part2[, 1:floor(ncol(s4)/2)]
+
+set.seed(777)
+s5_part1 <- s5[, sample(ncol(s5), floor(ncol(s5)/2))]
+s5_part2 <- s5
+s5_part2[, colnames(s5_part1)] <- NULL
+
+set.seed(777)
+s6_part1 <- s6[, sample(ncol(s6), floor(ncol(s6)/2))]
+s6_part2 <- s6
+s6_part2[, colnames(s6_part1)] <- NULL
+s6_part2 <- s6_part2[, 1:floor(ncol(s6)/2)]
+
+set.seed(777)
+s7_part1 <- s7[, sample(ncol(s7), floor(ncol(s7)/2))]
+s7_part2 <- s7
+s7_part2[, colnames(s7_part1)] <- NULL
+s7_part2 <- s7_part2[, 1:floor(ncol(s7)/2)]
+
+set.seed(777)
+s8_part1 <- s8[, sample(ncol(s8), floor(ncol(s8)/2))]
+s8_part2 <- s8
+s8_part2[, colnames(s8_part1)] <- NULL
+
+s1_comb1 <- as.data.frame(rowSums(s1_part1))
+s1_comb2 <- as.data.frame(rowSums(s1_part2))
+s2_comb1 <- as.data.frame(rowSums(s2_part1))
+s2_comb2 <- as.data.frame(rowSums(s2_part2))
+s3_comb1 <- as.data.frame(rowSums(s3_part1))
+s3_comb2 <- as.data.frame(rowSums(s3_part2))
+s4_comb1 <- as.data.frame(rowSums(s4_part1))
+s4_comb2 <- as.data.frame(rowSums(s4_part2))
+s5_comb1 <- as.data.frame(rowSums(s5_part1))
+s5_comb2 <- as.data.frame(rowSums(s5_part2))
+s6_comb1 <- as.data.frame(rowSums(s6_part1))
+s6_comb2 <- as.data.frame(rowSums(s6_part2))
+s7_comb1 <- as.data.frame(rowSums(s7_part1))
+s7_comb2 <- as.data.frame(rowSums(s7_part2))
+s8_comb1 <- as.data.frame(rowSums(s8_part1))
+s8_comb2 <- as.data.frame(rowSums(s8_part2))
+
+# Combine A549 and HBEpC samples together separately
+s1_comb1$gene <- rownames(s1_comb1)
+s1_comb2$gene <- rownames(s1_comb2)
+s2_comb1$gene <- rownames(s2_comb1)
+s2_comb2$gene <- rownames(s2_comb2)
+s3_comb1$gene <- rownames(s3_comb1)
+s3_comb2$gene <- rownames(s3_comb2)
+s4_comb1$gene <- rownames(s4_comb1)
+s4_comb2$gene <- rownames(s4_comb2)
+s5_comb1$gene <- rownames(s5_comb1)
+s5_comb2$gene <- rownames(s5_comb2)
+s6_comb1$gene <- rownames(s6_comb1)
+s6_comb2$gene <- rownames(s6_comb2)
+s7_comb1$gene <- rownames(s7_comb1)
+s7_comb2$gene <- rownames(s7_comb2)
+s8_comb1$gene <- rownames(s8_comb1)
+s8_comb2$gene <- rownames(s8_comb2)
+
+s1_comb12 <- merge(s1_comb1, s1_comb2, by="gene", all=TRUE)
+s2_comb12 <- merge(s2_comb1, s2_comb2, by="gene", all=TRUE)
+s3_comb12 <- merge(s3_comb1, s3_comb2, by="gene", all=TRUE)
+s4_comb12 <- merge(s4_comb1, s4_comb2, by="gene", all=TRUE)
+s12_comb <- merge(s1_comb12, s2_comb12, by="gene", all=TRUE)
+s34_comb <- merge(s3_comb12, s4_comb12, by="gene", all=TRUE)
+A549_comb <- merge(s12_comb, s34_comb, by="gene", all=TRUE)
+rownames(A549_comb) <- A549_comb$gene
+A549_comb$gene <- NULL
+colnames(A549_comb) <- c("A549_Mock_1", "A549_Mock_2", "A549_6h_1", "A549_6h_2",
+                         "A549_12h_1", "A549_12h_2", "A549_24h_1", "A549_24h_2")
+
+s5_comb12 <- merge(s5_comb1, s5_comb2, by="gene", all=TRUE)
+s6_comb12 <- merge(s6_comb1, s6_comb2, by="gene", all=TRUE)
+s7_comb12 <- merge(s7_comb1, s7_comb2, by="gene", all=TRUE)
+s8_comb12 <- merge(s8_comb1, s8_comb2, by="gene", all=TRUE)
+s56_comb <- merge(s5_comb12, s6_comb12, by="gene", all=TRUE)
+s78_comb <- merge(s7_comb12, s8_comb12, by="gene", all=TRUE)
+HBEpC_comb <- merge(s56_comb, s78_comb, by="gene", all=TRUE)
+rownames(HBEpC_comb) <- HBEpC_comb$gene
+HBEpC_comb$gene <- NULL
+colnames(HBEpC_comb) <- c("HBEpC_Mock_1", "HBEpC_Mock_2", "HBEpC_6h_1", "HBEpC_6h_2",
+                          "HBEpC_12h_1", "HBEpC_12h_2", "HBEpC_24h_1", "HBEpC_24h_2")
+
+# replace NA with 0
+A549_comb[is.na(A549_comb)] <- 0
+HBEpC_comb[is.na(HBEpC_comb)] <- 0
+
+# Convert data to matrix
+A549_comb <- as.matrix(A549_comb)
+HBEpC_comb <- as.matrix(HBEpC_comb)
+
+
+## Prepare DESeq2 dataset ##
+coldata <- read.csv("../../10X_data/DEanaylses_vsMock/DESeq2_annotation.csv", header=TRUE, row.names=1) # load annotation file for DESeq2
+A549_coldata <- coldata[1:8, ]
+HBEpC_coldata <- coldata[9:16, ]
+
+A549_coldata$combined_condition <- factor(A549_coldata$combined_condition,
+                                          levels=c("mock_12h", "infection_6h",
+                                                   "infection_12h", "infection_24h"))
+HBEpC_coldata$combined_condition <- factor(HBEpC_coldata$combined_condition,
+                                           levels=c("mock_12h", "infection_6h",
+                                                    "infection_12h", "infection_24h"))
+
+## Prepare input data
+# It is absolutely critical that the columns of the count matrix and 
+# the rows of the column data (information about samples) are in the same order. 
+all(rownames(A549_coldata) == colnames(A549_comb))
+all(rownames(HBEpC_coldata) == colnames(HBEpC_comb))
+# If return "FALSE", run the following codes
+#A549_ <- expdata[, rownames(coldata)]
+#all(rownames(coldata) == colnames(expdata))
+# Should return "TRUE"
+
+## construct a DESeqData
+A549_dds <- DESeqDataSetFromMatrix(countData=A549_comb, 
+                                   colData=A549_coldata, 
+                                   design= ~ combined_condition)
+HBEpC_dds <- DESeqDataSetFromMatrix(countData=HBEpC_comb, 
+                                    colData=HBEpC_coldata, 
+                                    design= ~ combined_condition)
+
+## Add additional feature data, e.g. gene names
+featureData_A549 <- as.data.frame(rownames(A549_comb))
+colnames(featureData_A549) <- "gene"
+rownames(featureData_A549) <- featureData_A549$gene
+mcols(A549_dds) <- DataFrame(mcols(A549_dds), featureData_A549)
+mcols(A549_dds)
+
+featureData_HBEpC <- as.data.frame(rownames(HBEpC_comb))
+colnames(featureData_HBEpC) <- "gene"
+rownames(featureData_HBEpC) <- featureData_HBEpC$gene
+mcols(HBEpC_dds) <- DataFrame(mcols(HBEpC_dds), featureData_HBEpC)
+mcols(HBEpC_dds)
+
+## Pre-filtering ##
+# Note: in the tutorial, they performed a minimal filtering to filter out
+# genes with less than 10 reads across the whole dataset.
+# I decide to filter out genes with less than 1 read in at least two samples in the dataset
+# In another word, we retain only those genes that are represented at least 1 read in at least two samples
+A549_keep <- rowSums(counts(A549_dds)) >= 2
+HBEpC_keep <- rowSums(counts(HBEpC_dds)) >= 2
+
+A549_keep <- A549_keep[rowSums(A549_comb[A549_keep, ] == 0) <= 6]
+HBEpC_keep <- HBEpC_keep[rowSums(HBEpC_comb[HBEpC_keep, ] == 0) <= 6]
+
+A549_dds <- A549_dds[A549_keep, ]
+HBEpC_dds <- HBEpC_dds[HBEpC_keep, ]
+nrow(A549_dds) 
+nrow(HBEpC_dds) 
+
+
+## Note on factor levels ##
+# One way to set which level you want to compare against 
+# (e.g. which level represents the control group)
+# Default DESeq2 use a reference level for factors based on alphabetical order.
+A549_dds$combined_condition <- factor(A549_coldata$combined_condition,
+                                      levels=c("mock_12h", "infection_6h",
+                                               "infection_12h", "infection_24h"))
+HBEpC_dds$combined_condition <- factor(HBEpC_coldata$combined_condition,
+                                       levels=c("mock_12h", "infection_6h",
+                                                "infection_12h", "infection_24h"))
+
+## The rlog and varlance stabilizing transformations ##
+A549_rld <- rlog(A549_dds, blind=FALSE)
+head(assay(A549_rld), 3)
+
+HBEpC_rld <- rlog(HBEpC_dds, blind=FALSE)
+head(assay(HBEpC_rld), 3)
+
+A549_dds <- estimateSizeFactors(A549_dds)
+HBEpC_dds <- estimateSizeFactors(HBEpC_dds)
+
+## Sample distance ##
+A549_sampleDists <- dist(t(assay(A549_rld)))
+A549_sampleDists
+HBEpC_sampleDists <- dist(t(assay(HBEpC_rld)))
+HBEpC_sampleDists
+
+A549_sampleDistMatrix <- as.matrix(A549_sampleDists)
+colnames(A549_sampleDistMatrix) <- NULL
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
+pheatmap(A549_sampleDistMatrix,
+         clustering_distance_rows=A549_sampleDists,
+         clustering_distance_cols=A549_sampleDists,
+         col=colors,
+         fontsize=12)
+
+HBEpC_sampleDistMatrix <- as.matrix(HBEpC_sampleDists)
+colnames(HBEpC_sampleDistMatrix) <- NULL
+pheatmap(HBEpC_sampleDistMatrix,
+         clustering_distance_rows=HBEpC_sampleDists,
+         clustering_distance_cols=HBEpC_sampleDists,
+         col=colors,
+         fontsize=12)
+
+# Heatmap of sample-to-sample distances using the rlog-transformed values
+A549_poisd <- PoissonDistance(t(counts(A549_dds)))
+HBEpC_poisd <- PoissonDistance(t(counts(HBEpC_dds)))
+
+A549_samplePoisDistMatrix <- as.matrix(A549_poisd$dd)
+rownames(A549_samplePoisDistMatrix) <- colnames(A549_comb)
+pheatmap(A549_samplePoisDistMatrix,
+         clustering_distance_rows=A549_poisd$dd,
+         clustering_distance_cols=A549_poisd$dd,
+         col=colors,
+         fontsize=12)
+
+HBEpC_samplePoisDistMatrix <- as.matrix(HBEpC_poisd$dd)
+rownames(HBEpC_samplePoisDistMatrix) <- colnames(HBEpC_comb)
+pheatmap(HBEpC_samplePoisDistMatrix,
+         clustering_distance_rows=HBEpC_poisd$dd,
+         clustering_distance_cols=HBEpC_poisd$dd,
+         col=colors,
+         fontsize=12)
+
+
+## PCA plot ##
+A549_pcaData <- plotPCA(A549_rld, intgroup=c("combined_condition"), returnData=TRUE)
+A549_percentVar <- round(100 * attr(A549_pcaData, "percentVar"))
+ggplot(A549_pcaData, aes(PC1, PC2, color=combined_condition)) +
+  geom_point(size=5) +
+  xlab(paste0("PC1: ", A549_percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ", A549_percentVar[2],"% variance")) +
+  labs(color="Conditions") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+HBEpC_pcaData <- plotPCA(HBEpC_rld, intgroup=c("combined_condition", "batch"), 
+                         returnData=TRUE)
+HBEpC_percentVar <- round(100 * attr(HBEpC_pcaData, "percentVar"))
+ggplot(HBEpC_pcaData, aes(PC1, PC2, color=combined_condition, shape=batch)) +
+  geom_point(size=5) +
+  xlab(paste0("PC1: ", A549_percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ", A549_percentVar[2],"% variance")) +
+  labs(color="Conditions", shape="Batch") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+
+## MDS plot ##
+A549_mds <- as.data.frame(colData(A549_rld))  %>%
+  cbind(cmdscale(A549_sampleDistMatrix))
+ggplot(A549_mds, aes(x=`1`, y=`2`, color=combined_condition)) +
+  geom_point(size=5) +
+  labs(color="Conditions", x="MDS_1", y="MDS_2") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+HBEpC_mds <- as.data.frame(colData(HBEpC_rld))  %>%
+  cbind(cmdscale(HBEpC_sampleDistMatrix))
+ggplot(HBEpC_mds, aes(x=`1`, y=`2`, color=combined_condition, shape=batch)) +
+  geom_point(size=5) +
+  labs(color="Conditions", shape="Batch", x="MDS_1", y="MDS_2") +
+  scale_color_manual(labels=c("Mock-infection", "PR8-infection 6hpi",
+                              "PR8-infection 12hpi", "PR8-infection 24hpi"),
+                     values=c("orangered", "gold", "darkturquoise", "darkorchid")) +
+  theme_classic() +
+  theme(text=element_text(size=15))
+
+
+## DESeq2 - Differential expression analysis ##
+## Multi-factor time-point design ##
+# Run DESeq for A549 and HBEpC separately
+A549_dds <- DESeq(A549_dds)
+HBEpC_dds <- DESeq(HBEpC_dds)
+
+# Building the results table for each contrast (i.e. each comparison, e.g. mock vs 6hpi)
+A549_6hvsmock_res <- results(A549_dds, 
+                             contrast=c("combined_condition", 
+                                        "infection_6h", "mock_12h"),
+                             alpha=0.05, lfcThreshold=0)
+A549_6hvsmock_res
+mcols(A549_6hvsmock_res, use.names = TRUE)
+summary(A549_6hvsmock_res)
+table(A549_6hvsmock_res$padj < 0.05) 
+
+A549_12hvsmock_res <- results(A549_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_12h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+A549_12hvsmock_res
+mcols(A549_12hvsmock_res, use.names = TRUE)
+summary(A549_12hvsmock_res)
+table(A549_12hvsmock_res$padj < 0.05) 
+
+A549_24hvsmock_res <- results(A549_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_24h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+A549_24hvsmock_res
+mcols(A549_24hvsmock_res, use.names = TRUE)
+summary(A549_24hvsmock_res)
+table(A549_24hvsmock_res$padj < 0.05) 
+
+HBEpC_6hvsmock_res <- results(HBEpC_dds, 
+                              contrast=c("combined_condition", 
+                                         "infection_6h", "mock_12h"),
+                              alpha=0.05, lfcThreshold=0)
+HBEpC_6hvsmock_res
+mcols(HBEpC_6hvsmock_res, use.names = TRUE)
+summary(HBEpC_6hvsmock_res)
+table(HBEpC_6hvsmock_res$padj < 0.05) 
+
+HBEpC_12hvsmock_res <- results(HBEpC_dds, 
+                               contrast=c("combined_condition", 
+                                          "infection_12h", "mock_12h"),
+                               alpha=0.05, lfcThreshold=0)
+HBEpC_12hvsmock_res
+mcols(HBEpC_12hvsmock_res, use.names = TRUE)
+summary(HBEpC_12hvsmock_res)
+table(HBEpC_12hvsmock_res$padj < 0.05) 
+
+HBEpC_24hvsmock_res <- results(HBEpC_dds, 
+                               contrast=c("combined_condition", 
+                                          "infection_24h", "mock_12h"),
+                               alpha=0.05, lfcThreshold=0)
+HBEpC_24hvsmock_res
+mcols(HBEpC_24hvsmock_res, use.names = TRUE)
+summary(HBEpC_24hvsmock_res)
+table(HBEpC_24hvsmock_res$padj < 0.05) 
+
+
+# We subset the results table to these genes and then sort it by the log2 fold change 
+# estimate to get the significant genes with the strongest up-regulation:
+A549_6hvsmock_resSig <- subset(A549_6hvsmock_res, padj<0.05)
+A549_6hvsmock_resSig <- A549_6hvsmock_resSig[order(A549_6hvsmock_resSig$log2FoldChange,
+                                                   decreasing=TRUE), ]
+A549_6hvsmock_resSig_df <- as.data.frame(A549_6hvsmock_resSig)
+A549_6hvsmock_resSig_df$Gene <- rownames(A549_6hvsmock_resSig_df)
+A549_6hvsmock_resSig_df <- A549_6hvsmock_resSig_df[order(A549_6hvsmock_resSig_df$log2FoldChange,
+                                                         decreasing=TRUE), ]
+
+A549_12hvsmock_resSig <- subset(A549_12hvsmock_res, padj<0.05)
+A549_12hvsmock_resSig <- A549_12hvsmock_resSig[order(A549_12hvsmock_resSig$log2FoldChange,
+                                                     decreasing=TRUE), ]
+A549_12hvsmock_resSig_df <- as.data.frame(A549_12hvsmock_resSig)
+A549_12hvsmock_resSig_df$Gene <- rownames(A549_12hvsmock_resSig_df)
+A549_12hvsmock_resSig_df <- A549_12hvsmock_resSig_df[order(A549_12hvsmock_resSig_df$log2FoldChange,
+                                                           decreasing=TRUE), ]
+
+A549_24hvsmock_resSig <- subset(A549_24hvsmock_res, padj<0.05)
+A549_24hvsmock_resSig <- A549_24hvsmock_resSig[order(A549_24hvsmock_resSig$log2FoldChange,
+                                                     decreasing=TRUE), ]
+A549_24hvsmock_resSig_df <- as.data.frame(A549_24hvsmock_resSig)
+A549_24hvsmock_resSig_df$Gene <- rownames(A549_24hvsmock_resSig_df)
+A549_24hvsmock_resSig_df <- A549_24hvsmock_resSig_df[order(A549_24hvsmock_resSig_df$log2FoldChange,
+                                                           decreasing=TRUE), ]
+
+HBEpC_6hvsmock_resSig <- subset(HBEpC_6hvsmock_res, padj<0.05)
+HBEpC_6hvsmock_resSig <- 
+  HBEpC_6hvsmock_resSig[order(HBEpC_6hvsmock_resSig$log2FoldChange,
+                              decreasing=TRUE), ]
+HBEpC_6hvsmock_resSig_df <- as.data.frame(HBEpC_6hvsmock_resSig)
+HBEpC_6hvsmock_resSig_df$Gene <- rownames(HBEpC_6hvsmock_resSig_df)
+HBEpC_6hvsmock_resSig_df <- 
+  HBEpC_6hvsmock_resSig_df[order(HBEpC_6hvsmock_resSig_df$log2FoldChange,
+                                 decreasing=TRUE), ]
+
+HBEpC_12hvsmock_resSig <- subset(HBEpC_12hvsmock_res, padj<0.05)
+HBEpC_12hvsmock_resSig <- 
+  HBEpC_12hvsmock_resSig[order(HBEpC_12hvsmock_resSig$log2FoldChange,
+                               decreasing=TRUE), ]
+HBEpC_12hvsmock_resSig_df <- as.data.frame(HBEpC_12hvsmock_resSig)
+HBEpC_12hvsmock_resSig_df$Gene <- rownames(HBEpC_12hvsmock_resSig_df)
+HBEpC_12hvsmock_resSig_df <- 
+  HBEpC_12hvsmock_resSig_df[order(HBEpC_12hvsmock_resSig_df$log2FoldChange,
+                                  decreasing=TRUE), ]
+
+HBEpC_24hvsmock_resSig <- subset(HBEpC_24hvsmock_res, padj<0.05)
+HBEpC_24hvsmock_resSig <- 
+  HBEpC_24hvsmock_resSig[order(HBEpC_24hvsmock_resSig$log2FoldChange,
+                               decreasing=TRUE), ]
+HBEpC_24hvsmock_resSig_df <- as.data.frame(HBEpC_24hvsmock_resSig)
+HBEpC_24hvsmock_resSig_df$Gene <- rownames(HBEpC_24hvsmock_resSig_df)
+HBEpC_24hvsmock_resSig_df <- 
+  HBEpC_24hvsmock_resSig_df[order(HBEpC_24hvsmock_resSig_df$log2FoldChange,
+                                  decreasing=TRUE), ]
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+# Export DEG list 
+write.csv(A549_6hvsmock_resSig_df, file="DEGList/merged_sc/A549_6hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(A549_12hvsmock_resSig_df, file="DEGList/merged_sc/A549_12hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(A549_24hvsmock_resSig_df, file="DEGList/merged_sc/A549_24hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+
+write.csv(HBEpC_6hvsmock_resSig_df, file="DEGList/merged_sc/HBEpC_6hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(HBEpC_12hvsmock_resSig_df, file="DEGList/merged_sc/HBEpC_12hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+write.csv(HBEpC_24hvsmock_resSig_df, file="DEGList/merged_sc/HBEpC_24hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv")
+
+```
+
+```{r warning=FALSE, message=FALSE}
+## edgeR ##
+## Create a DEGList object ##
+A549_dgList <- DGEList(counts=counts(A549_dds), genes=rownames(counts(A549_dds)))
+HBEpC_dgList <- DGEList(counts=counts(HBEpC_dds), genes=rownames(counts(HBEpC_dds)))
+
+## Filtering ##
+# Similar to the criteria I used in DESeq2, we retain only those genes 
+# that are represented at least 1 read in at least two samples.
+# So I already directly grab filtered matrix from DESeq2 count matrix.
+
+## Normalization - TMM (trimmed mean of M-values (TMM)) ##
+A549_dgList <- calcNormFactors(A549_dgList, method="TMM")
+HBEpC_dgList <- calcNormFactors(HBEpC_dgList, method="TMM")
+
+## Data exploration ##
+plotMDS(A549_dgList)
+plotMDS(HBEpC_dgList)
+
+## Setting up the Model ##
+A549_combined_condition <- factor(c(rep("mock_12h", 2), rep("infection_6h", 2), 
+                                    rep("infection_12h", 2), rep("infection_24h", 2)),
+                                  levels=c("mock_12h", "infection_6h", 
+                                           "infection_12h", "infection_24h"))
+HBEpC_combined_condition <- factor(c(rep("mock_12h", 2), rep("infection_6h", 2), 
+                                     rep("infection_12h", 2), rep("infection_24h", 2)),
+                                   levels=c("mock_12h", "infection_6h", 
+                                            "infection_12h", "infection_24h"))
+
+# Add "0+" will change the first contrast from "intercept" to the baseline
+A549_designMat <- model.matrix(~ 0 + A549_combined_condition)
+HBEpC_designMat <- model.matrix(~ 0 + HBEpC_combined_condition)
+
+## Estimating Dispersions ##
+A549_dgList <- estimateGLMCommonDisp(A549_dgList, design=A549_designMat)
+A549_dgList <- estimateGLMTrendedDisp(A549_dgList, design=A549_designMat)
+A549_dgList <- estimateGLMTagwiseDisp(A549_dgList, design=A549_designMat)
+
+HBEpC_dgList <- estimateGLMCommonDisp(HBEpC_dgList, design=HBEpC_designMat)
+HBEpC_dgList <- estimateGLMTrendedDisp(HBEpC_dgList, design=HBEpC_designMat)
+HBEpC_dgList <- estimateGLMTagwiseDisp(HBEpC_dgList, design=HBEpC_designMat)
+
+# We can plot the estimates and see how they differ. 
+# The biological coefficient of variation (BCV) is the square root of 
+# the dispersion parameter in the negative binomial model.
+plotBCV(A549_dgList)
+plotBCV(HBEpC_dgList)
+
+##  Differential Expression ##
+A549_fit <- glmQLFit(A549_dgList, A549_designMat)
+HBEpC_fit <- glmQLFit(HBEpC_dgList, HBEpC_designMat)
+
+A549_qlf_6hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,1,0,0))
+A549_qlf_12hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,0,1,0))
+A549_qlf_24hvsmock <- glmQLFTest(A549_fit, contrast=c(-1,0,0,1))
+A549_qlf_12hvs6h <- glmQLFTest(A549_fit, contrast=c(0,-1,1,0))
+A549_qlf_24hvs6h <- glmQLFTest(A549_fit, contrast=c(0,-1,0,1))
+A549_qlf_24hvs12h <- glmQLFTest(A549_fit, contrast=c(0,0,-1,1))
+
+HBEpC_qlf_6hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,1,0,0))
+HBEpC_qlf_12hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,0,1,0))
+HBEpC_qlf_24hvsmock <- glmQLFTest(HBEpC_fit, contrast=c(-1,0,0,1))
+HBEpC_qlf_12hvs6h <- glmQLFTest(HBEpC_fit, contrast=c(0,-1,1,0))
+HBEpC_qlf_24hvs6h <- glmQLFTest(HBEpC_fit, contrast=c(0,-1,0,1))
+HBEpC_qlf_24hvs12h <- glmQLFTest(HBEpC_fit, contrast=c(0,0,-1,1))
+
+# Print all the DEGs. Change "n=" to a smaller value will only print required top n genes.
+A549_6hvsmock_edgeR <- topTags(A549_qlf_6hvsmock, sort.by="logFC", 
+                               p.value=0.05, n=20000)[["table"]] 
+A549_12hvsmock_edgeR <- topTags(A549_qlf_12hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+A549_24hvsmock_edgeR <- topTags(A549_qlf_24hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+
+HBEpC_6hvsmock_edgeR <- topTags(HBEpC_qlf_6hvsmock, sort.by="logFC", 
+                                p.value=0.05, n=20000)[["table"]] 
+HBEpC_12hvsmock_edgeR <- topTags(HBEpC_qlf_12hvsmock, sort.by="logFC", 
+                                 p.value=0.05, n=20000)[["table"]] 
+HBEpC_24hvsmock_edgeR <- topTags(HBEpC_qlf_24hvsmock, sort.by="logFC", 
+                                 p.value=0.05, n=20000)[["table"]] 
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+## Export DEG lists ##
+write.csv(A549_6hvsmock_edgeR, file="DEGList/merged_sc/A549_6hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(A549_12hvsmock_edgeR, file="DEGList/merged_sc/A549_12hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(A549_24hvsmock_edgeR, file="DEGList/merged_sc/A549_24hpi-vs-mock_edgeR_DEGlist.csv")
+
+write.csv(HBEpC_6hvsmock_edgeR, file="DEGList/merged_sc/HBEpC_6hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(HBEpC_12hvsmock_edgeR, file="DEGList/merged_sc/HBEpC_12hpi-vs-mock_edgeR_DEGlist.csv")
+write.csv(HBEpC_24hvsmock_edgeR, file="DEGList/merged_sc/HBEpC_24hpi-vs-mock_edgeR_DEGlist.csv")
+
+```
+
+
+
+###### Summarize DESeq2 and edgeR results ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+
+```
+
+
+
+#### A549 ####
+#### 24hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_24hvsmock <- read.csv("A549_24hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_A549_24hvsmock <- read.csv("A549_24hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_24hvsmock)[1] <- "Gene"
+
+A549_24hvsmock_intersect <- merge(DESeq2_A549_24hvsmock, edgeR_A549_24hvsmock, by="Gene")
+colnames(A549_24hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_24hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_24hvsmock_intersect$DESeq2_log2FC)
+A549_24hvsmock_intersect <- 
+  A549_24hvsmock_intersect[order(A549_24hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+A549_24hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_24hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_24hvsmock_intersect$edgeR_abslogFC <- abs(A549_24hvsmock_intersect$edgeR_logFC)
+A549_24hvsmock_intersect <- 
+  A549_24hvsmock_intersect[order(A549_24hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+A549_24hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_24hvsmock_intersect), 1)
+
+A549_24hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_24hvsmock_intersect$Geneid),
+                                                   A549_24hvsmock_intersect$DEseq2_rank,
+                                                   A549_24hvsmock_intersect$edgeR_rank,
+                                                   A549_24hvsmock_intersect$DESeq2_log2FC,
+                                                   A549_24hvsmock_intersect$DESeq2_abslog2FC,
+                                                   A549_24hvsmock_intersect$DESeq2_padj,
+                                                   A549_24hvsmock_intersect$edgeR_logFC,
+                                                   A549_24hvsmock_intersect$edgeR_abslogFC,
+                                                   A549_24hvsmock_intersect$edgeR_FDR))
+colnames(A549_24hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+write.csv(A549_24hvsmock_intersect_df, 
+          file="A549_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+```{r warning=FALSE, message=FALSE}
+# Top10 DEGs identified in both packages
+top10_DEGs_A549 <- A549_24hvsmock_intersect_df[1:10, ]$Gene_name
+top10_DEGs_A549
+
+```
+
+
+
+#### 12hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_12hvsmock <- read.csv("A549_12hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_A549_12hvsmock <- read.csv("A549_12hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_12hvsmock)[1] <- "Gene"
+
+A549_12hvsmock_intersect <- merge(DESeq2_A549_12hvsmock, edgeR_A549_12hvsmock, by="Gene")
+colnames(A549_12hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_12hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_12hvsmock_intersect$DESeq2_log2FC)
+A549_12hvsmock_intersect <- 
+  A549_12hvsmock_intersect[order(A549_12hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+A549_12hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_12hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_12hvsmock_intersect$edgeR_abslogFC <- abs(A549_12hvsmock_intersect$edgeR_logFC)
+A549_12hvsmock_intersect <- 
+  A549_12hvsmock_intersect[order(A549_12hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+A549_12hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_12hvsmock_intersect), 1)
+
+A549_12hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_12hvsmock_intersect$Geneid),
+                                                   A549_12hvsmock_intersect$DEseq2_rank,
+                                                   A549_12hvsmock_intersect$edgeR_rank,
+                                                   A549_12hvsmock_intersect$DESeq2_log2FC,
+                                                   A549_12hvsmock_intersect$DESeq2_abslog2FC,
+                                                   A549_12hvsmock_intersect$DESeq2_padj,
+                                                   A549_12hvsmock_intersect$edgeR_logFC,
+                                                   A549_12hvsmock_intersect$edgeR_abslogFC,
+                                                   A549_12hvsmock_intersect$edgeR_FDR))
+colnames(A549_12hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+write.csv(A549_12hvsmock_intersect_df, 
+          file="A549_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### 6hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_A549_6hvsmock <- read.csv("A549_6hpi-vs-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_A549_6hvsmock <- read.csv("A549_6hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_A549_6hvsmock)[1] <- "Gene"
+
+A549_6hvsmock_intersect <- merge(DESeq2_A549_6hvsmock, edgeR_A549_6hvsmock, by="Gene")
+colnames(A549_6hvsmock_intersect) <- c("Geneid", 
+                                       "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                       "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                       "edgeR_logFC", "edgeR_logCPM",
+                                       "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+A549_6hvsmock_intersect$DESeq2_abslog2FC <- abs(A549_6hvsmock_intersect$DESeq2_log2FC)
+A549_6hvsmock_intersect <- 
+  A549_6hvsmock_intersect[order(A549_6hvsmock_intersect$DESeq2_abslog2FC, 
+                                decreasing=TRUE), ]
+A549_6hvsmock_intersect$DEseq2_rank <- seq(1, nrow(A549_6hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+A549_6hvsmock_intersect$edgeR_abslogFC <- abs(A549_6hvsmock_intersect$edgeR_logFC)
+A549_6hvsmock_intersect <- 
+  A549_6hvsmock_intersect[order(A549_6hvsmock_intersect$edgeR_abslogFC, 
+                                decreasing=TRUE), ]
+A549_6hvsmock_intersect$edgeR_rank <- seq(1, nrow(A549_6hvsmock_intersect), 1)
+
+A549_6hvsmock_intersect_df <- as.data.frame(cbind(as.character(A549_6hvsmock_intersect$Geneid),
+                                                  A549_6hvsmock_intersect$DEseq2_rank,
+                                                  A549_6hvsmock_intersect$edgeR_rank,
+                                                  A549_6hvsmock_intersect$DESeq2_log2FC,
+                                                  A549_6hvsmock_intersect$DESeq2_abslog2FC,
+                                                  A549_6hvsmock_intersect$DESeq2_padj,
+                                                  A549_6hvsmock_intersect$edgeR_logFC,
+                                                  A549_6hvsmock_intersect$edgeR_abslogFC,
+                                                  A549_6hvsmock_intersect$edgeR_FDR))
+colnames(A549_6hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                          "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                          "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+write.csv(A549_6hvsmock_intersect_df, 
+          file="A549_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### HBEpC ####
+#### 24hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_24hvsmock <- read.csv("HBEpC_24hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_HBEpC_24hvsmock <- read.csv("HBEpC_24hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_24hvsmock)[1] <- "Gene"
+
+HBEpC_24hvsmock_intersect <- merge(DESeq2_HBEpC_24hvsmock, edgeR_HBEpC_24hvsmock, by="Gene")
+colnames(HBEpC_24hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_24hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_24hvsmock_intersect$DESeq2_log2FC)
+HBEpC_24hvsmock_intersect <- 
+  HBEpC_24hvsmock_intersect[order(HBEpC_24hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+HBEpC_24hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_24hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_24hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_24hvsmock_intersect$edgeR_logFC)
+HBEpC_24hvsmock_intersect <- 
+  HBEpC_24hvsmock_intersect[order(HBEpC_24hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+HBEpC_24hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_24hvsmock_intersect), 1)
+
+HBEpC_24hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_24hvsmock_intersect$Geneid),
+                                                   HBEpC_24hvsmock_intersect$DEseq2_rank,
+                                                   HBEpC_24hvsmock_intersect$edgeR_rank,
+                                                   HBEpC_24hvsmock_intersect$DESeq2_log2FC,
+                                                   HBEpC_24hvsmock_intersect$DESeq2_abslog2FC,
+                                                   HBEpC_24hvsmock_intersect$DESeq2_padj,
+                                                   HBEpC_24hvsmock_intersect$edgeR_logFC,
+                                                   HBEpC_24hvsmock_intersect$edgeR_abslogFC,
+                                                   HBEpC_24hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_24hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+write.csv(HBEpC_24hvsmock_intersect_df, 
+          file="HBEpC_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+```{r warning=FALSE, message=FALSE}
+# Top10 DEGs identified in both packages
+top10_DEGs_HBEpC <- HBEpC_24hvsmock_intersect_df[1:10, ]$Gene_name
+top10_DEGs_HBEpC
+
+```
+
+
+
+#### 12hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_12hvsmock <- read.csv("HBEpC_12hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_HBEpC_12hvsmock <- read.csv("HBEpC_12hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_12hvsmock)[1] <- "Gene"
+
+HBEpC_12hvsmock_intersect <- merge(DESeq2_HBEpC_12hvsmock, edgeR_HBEpC_12hvsmock, by="Gene")
+colnames(HBEpC_12hvsmock_intersect) <- c("Geneid", 
+                                        "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                        "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                        "edgeR_logFC", "edgeR_logCPM",
+                                        "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_12hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_12hvsmock_intersect$DESeq2_log2FC)
+HBEpC_12hvsmock_intersect <- 
+  HBEpC_12hvsmock_intersect[order(HBEpC_12hvsmock_intersect$DESeq2_abslog2FC, 
+                                 decreasing=TRUE), ]
+HBEpC_12hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_12hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_12hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_12hvsmock_intersect$edgeR_logFC)
+HBEpC_12hvsmock_intersect <- 
+  HBEpC_12hvsmock_intersect[order(HBEpC_12hvsmock_intersect$edgeR_abslogFC, 
+                                 decreasing=TRUE), ]
+HBEpC_12hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_12hvsmock_intersect), 1)
+
+HBEpC_12hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_12hvsmock_intersect$Geneid),
+                                                   HBEpC_12hvsmock_intersect$DEseq2_rank,
+                                                   HBEpC_12hvsmock_intersect$edgeR_rank,
+                                                   HBEpC_12hvsmock_intersect$DESeq2_log2FC,
+                                                   HBEpC_12hvsmock_intersect$DESeq2_abslog2FC,
+                                                   HBEpC_12hvsmock_intersect$DESeq2_padj,
+                                                   HBEpC_12hvsmock_intersect$edgeR_logFC,
+                                                   HBEpC_12hvsmock_intersect$edgeR_abslogFC,
+                                                   HBEpC_12hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_12hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                           "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                           "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE}
+write.csv(HBEpC_12hvsmock_intersect_df, 
+          file="HBEpC_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+#### 6hpi vs Mock ####
+```{r warning=FALSE, message=FALSE}
+DESeq2_HBEpC_6hvsmock <- read.csv("HBEpC_6hpi-vs-all-mock_DESeq2_multi-factor-comparison_DEGlist.csv", row.names=1)
+
+edgeR_HBEpC_6hvsmock <- read.csv("HBEpC_6hpi-vs-mock_edgeR_DEGlist.csv", row.names=1)
+colnames(edgeR_HBEpC_6hvsmock)[1] <- "Gene"
+
+HBEpC_6hvsmock_intersect <- merge(DESeq2_HBEpC_6hvsmock, edgeR_HBEpC_6hvsmock, by="Gene")
+colnames(HBEpC_6hvsmock_intersect) <- c("Geneid", 
+                                       "DESeq2_baseMean", "DESeq2_log2FC", "DESeq2_lfcSE",
+                                       "DESeq2_stat", "DESeq2_pval", "DESeq2_padj",
+                                       "edgeR_logFC", "edgeR_logCPM",
+                                       "edgeR_F", "edgeR_pval", "edgeR_FDR")
+
+# rank by absolute values of log2FC from DESeq2
+HBEpC_6hvsmock_intersect$DESeq2_abslog2FC <- abs(HBEpC_6hvsmock_intersect$DESeq2_log2FC)
+HBEpC_6hvsmock_intersect <- 
+  HBEpC_6hvsmock_intersect[order(HBEpC_6hvsmock_intersect$DESeq2_abslog2FC, 
+                                decreasing=TRUE), ]
+HBEpC_6hvsmock_intersect$DEseq2_rank <- seq(1, nrow(HBEpC_6hvsmock_intersect), 1)
+
+# rank by absolute values of logFC from edgeR
+HBEpC_6hvsmock_intersect$edgeR_abslogFC <- abs(HBEpC_6hvsmock_intersect$edgeR_logFC)
+HBEpC_6hvsmock_intersect <- 
+  HBEpC_6hvsmock_intersect[order(HBEpC_6hvsmock_intersect$edgeR_abslogFC, 
+                                decreasing=TRUE), ]
+HBEpC_6hvsmock_intersect$edgeR_rank <- seq(1, nrow(HBEpC_6hvsmock_intersect), 1)
+
+HBEpC_6hvsmock_intersect_df <- as.data.frame(cbind(as.character(HBEpC_6hvsmock_intersect$Geneid),
+                                                  HBEpC_6hvsmock_intersect$DEseq2_rank,
+                                                  HBEpC_6hvsmock_intersect$edgeR_rank,
+                                                  HBEpC_6hvsmock_intersect$DESeq2_log2FC,
+                                                  HBEpC_6hvsmock_intersect$DESeq2_abslog2FC,
+                                                  HBEpC_6hvsmock_intersect$DESeq2_padj,
+                                                  HBEpC_6hvsmock_intersect$edgeR_logFC,
+                                                  HBEpC_6hvsmock_intersect$edgeR_abslogFC,
+                                                  HBEpC_6hvsmock_intersect$edgeR_FDR))
+colnames(HBEpC_6hvsmock_intersect_df) <- c("Gene_name", "DESeq2_rank", "edgeR_rank",
+                                          "DESeq2_log2FC", "DESeq2_abslog2FC", "DESeq2_padj",
+                                          "edgeR_logFC", "edgeR_abslogFC", "edgeR_FDR")
+
+```
+
+```{r warning=FALSE, message=FALSE}
+write.csv(HBEpC_6hvsmock_intersect_df, 
+          file="HBEpC_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv",
+          quote=FALSE, row.names=FALSE)
+
+```
+
+
+
+###### A549 ######
+#### Load A549 3 timepoints vs mock DEG lists ####
+```{r warning=FALSE, message=FALSE}
+A549_6hvsmock <- read.csv("A549_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+A549_12hvsmock <- read.csv("A549_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+A549_24hvsmock <- read.csv("A549_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+
+A549_6hvsmock$Gene_name <- as.character(A549_6hvsmock$Gene_name)
+A549_12hvsmock$Gene_name <- as.character(A549_12hvsmock$Gene_name)
+A549_24hvsmock$Gene_name <- as.character(A549_24hvsmock$Gene_name)
+
+```
+
+
+
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive <- c("IFNL2", "IFNL1", "IFNL3", "IFNB1",
+                             "RSAD2", "CXCL10", "GBP4", "IDO1",
+                             "CH25H", "GBP5")
+  
+A549_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=A549_24h_top10_positive,
+             "log2FC_24hpi"=A549_24hvsmock[A549_24hvsmock$Gene_name %in% A549_24h_top10_positive, 
+                                           "ave_log2FC"])
+
+```
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_6hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c(1, 2, ncol(A549_24h_top10_positive_log2FC))]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                       decreasing=TRUE), ]
+colnames(A549_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_12hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c(1:3, ncol(A549_24h_top10_positive_log2FC))]
+colnames(A549_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+A549_24h_top10_positive_log2FC <- A549_24h_top10_positive_log2FC[, c(1,3,4,2)]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi,
+                                       decreasing=TRUE), ]
+
+```
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+```{r warning=FALSE, message=FALSE}
+A549_24h_top10_positive_log2FC_melt <- A549_24h_top10_positive_log2FC
+A549_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(A549_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=A549_24h_top10_positive_log2FC_melt$Gene_name)
+A549_24h_top10_positive_log2FC_melt <- melt(A549_24h_top10_positive_log2FC_melt,
+                                            id.vars="Gene_name")
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(A549_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(A549_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+
+#### Plot the log2FC from the edgeR results ####
+```{r warning=FALSE, message=FALSE}
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+A549_24h_top10_positive <- c("IFNL2", "IFNL1", "IFNL3", "IFNB1",
+                             "RSAD2", "CXCL10", "GBP4", "IDO1",
+                             "CH25H", "GBP5")
+
+A549_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=A549_24h_top10_positive,
+             "log2FC_24hpi"=A549_24hvsmock[A549_24hvsmock$Gene_name %in% A549_24h_top10_positive, 
+                                           "edgeR_logFC"])
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_6hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "edgeR_logFC")]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                       decreasing=TRUE), ]
+colnames(A549_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+A549_24h_top10_positive_log2FC <- merge(A549_24h_top10_positive_log2FC, A549_12hvsmock,
+                                        by="Gene_name", all.x=TRUE)
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "log2FC_6hpi", "edgeR_logFC")]
+colnames(A549_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+A549_24h_top10_positive_log2FC <- A549_24h_top10_positive_log2FC[, c(1,3,4,2)]
+A549_24h_top10_positive_log2FC <- 
+  A549_24h_top10_positive_log2FC[order(A549_24h_top10_positive_log2FC$log2FC_24hpi,
+                                       decreasing=TRUE), ]
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+A549_24h_top10_positive_log2FC_melt <- A549_24h_top10_positive_log2FC
+A549_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(A549_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=A549_24h_top10_positive_log2FC_melt$Gene_name)
+A549_24h_top10_positive_log2FC_melt <- melt(A549_24h_top10_positive_log2FC_melt,
+                                            id.vars="Gene_name")
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", A549_24h_top10_positive_log2FC_melt$variable)
+A549_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(A549_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(A549_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  scale_y_continuous(breaks=seq(3, 17, 2), limits=c(3, 17)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+###### HBEpC ######
+#### Load HBEpC 3 timepoints vs mock DEG lists ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_6hvsmock <- read.csv("HBEpC_6hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+HBEpC_12hvsmock <- read.csv("HBEpC_12hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+HBEpC_24hvsmock <- read.csv("HBEpC_24hpi-vs-mock_DESeq2-edgeR-intersect_DEGlist.csv")
+
+HBEpC_6hvsmock$Gene_name <- as.character(HBEpC_6hvsmock$Gene_name)
+HBEpC_12hvsmock$Gene_name <- as.character(HBEpC_12hvsmock$Gene_name)
+HBEpC_24hvsmock$Gene_name <- as.character(HBEpC_24hvsmock$Gene_name)
+
+```
+
+
+
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive <- c("IFI44L", "CMPK2", "CXCL10", "IFIT1",
+                              "IFNL1", "BST2", "IFNB1", "OASL",
+                              "IFNL3", "XAF1")
+
+HBEpC_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=HBEpC_24h_top10_positive,
+             "log2FC_24hpi"=HBEpC_24hvsmock[HBEpC_24hvsmock$Gene_name %in% HBEpC_24h_top10_positive, 
+                                            "ave_log2FC"])
+
+```
+
+
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_6hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c(1, 2, ncol(HBEpC_24h_top10_positive_log2FC))]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                        decreasing=TRUE), ]
+colnames(HBEpC_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_12hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c(1:3, ncol(HBEpC_24h_top10_positive_log2FC))]
+colnames(HBEpC_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+HBEpC_24h_top10_positive_log2FC <- HBEpC_24h_top10_positive_log2FC[, c(1,3,4,2)]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi,
+                                        decreasing=TRUE), ]
+
+```
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+```{r warning=FALSE, message=FALSE}
+HBEpC_24h_top10_positive_log2FC_melt <- HBEpC_24h_top10_positive_log2FC
+HBEpC_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(HBEpC_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=HBEpC_24h_top10_positive_log2FC_melt$Gene_name)
+HBEpC_24h_top10_positive_log2FC_melt <- melt(HBEpC_24h_top10_positive_log2FC_melt,
+                                             id.vars="Gene_name")
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(HBEpC_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(HBEpC_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+
+
+#### Plot the log2FC from the edgeR results ####
+```{r warning=FALSE, message=FALSE}
+#### Get the top10 positive DEGs based on log2FC at 24hpi ####
+HBEpC_24h_top10_positive <- c("IFI44L", "CMPK2", "CXCL10", "IFIT1",
+                              "IFNL1", "BST2", "IFNB1", "OASL",
+                              "IFNL3", "XAF1")
+
+HBEpC_24h_top10_positive_log2FC <- 
+  data.frame("Gene_name"=HBEpC_24h_top10_positive,
+             "log2FC_24hpi"=HBEpC_24hvsmock[HBEpC_24hvsmock$Gene_name %in% HBEpC_24h_top10_positive, 
+                                            "edgeR_logFC"])
+
+#### Extract corresponding log2FC at 6hpi and 12hpi for top10 genes ####
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_6hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "edgeR_logFC")]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi, 
+                                        decreasing=TRUE), ]
+colnames(HBEpC_24h_top10_positive_log2FC)[3] <- "log2FC_6hpi"
+
+HBEpC_24h_top10_positive_log2FC <- merge(HBEpC_24h_top10_positive_log2FC, HBEpC_12hvsmock,
+                                         by="Gene_name", all.x=TRUE)
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[, c("Gene_name", "log2FC_24hpi", "log2FC_6hpi", "edgeR_logFC")]
+colnames(HBEpC_24h_top10_positive_log2FC)[4] <- "log2FC_12hpi"
+
+HBEpC_24h_top10_positive_log2FC <- HBEpC_24h_top10_positive_log2FC[, c(1,3,4,2)]
+HBEpC_24h_top10_positive_log2FC <- 
+  HBEpC_24h_top10_positive_log2FC[order(HBEpC_24h_top10_positive_log2FC$log2FC_24hpi,
+                                        decreasing=TRUE), ]
+
+
+
+#### Plot the log2FC changes of positive top10 genes over time ####
+HBEpC_24h_top10_positive_log2FC_melt <- HBEpC_24h_top10_positive_log2FC
+HBEpC_24h_top10_positive_log2FC_melt$Gene_name <- 
+  factor(HBEpC_24h_top10_positive_log2FC_melt$Gene_name,
+         levels=HBEpC_24h_top10_positive_log2FC_melt$Gene_name)
+HBEpC_24h_top10_positive_log2FC_melt <- melt(HBEpC_24h_top10_positive_log2FC_melt,
+                                             id.vars="Gene_name")
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("log2FC_", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  gsub("hpi", "", HBEpC_24h_top10_positive_log2FC_melt$variable)
+HBEpC_24h_top10_positive_log2FC_melt$variable <- 
+  as.numeric(as.character(HBEpC_24h_top10_positive_log2FC_melt$variable))
+
+ggplot(HBEpC_24h_top10_positive_log2FC_melt, aes(x=variable, y=value)) +
+  facet_wrap(~Gene_name) +
+  geom_point(size=2) +
+  geom_path() +
+  scale_x_continuous(breaks=c(6, 12, 24), limits=c(6, 24)) +
+  scale_y_continuous(breaks=seq(1, 15, 2), limits=c(1, 15)) +
+  labs(x="Hours post infection", y="log2 FC comparing to mock-infected samples") +
+  theme(panel.background=element_rect(fill="white"),
+        panel.grid.major=element_line(colour="grey90"),
+        text=element_text(size=15))
+
+```
+
+

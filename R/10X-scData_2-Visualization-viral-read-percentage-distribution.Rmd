@@ -1,0 +1,1691 @@
+---
+title: "10X-scData_2-Visualization-viral-read-percentage-distribution"
+author: "Chang Wang"
+date: "7/27/2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Visualization of viral read percentage distribution ######
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(reshape)
+library(stringr)
+library(dplyr)
+library(plyr)
+library(Hmisc)
+
+"%||%" <- function(a, b) {
+  if (!is.null(a)) a else b
+}
+
+geom_flat_violin <- function(mapping = NULL, data = NULL, stat = "ydensity",
+                             position = "dodge", trim = TRUE, scale = "area",
+                             show.legend = NA, inherit.aes = TRUE, ...) {
+  layer(
+    data = data,
+    mapping = mapping,
+    stat = stat,
+    geom = GeomFlatViolin,
+    position = position,
+    show.legend = show.legend,
+    inherit.aes = inherit.aes,
+    params = list(
+      trim = trim,
+      scale = scale,
+      ...
+    )
+  )
+}
+
+GeomFlatViolin <-
+  ggproto("GeomFlatViolin", Geom,
+          setup_data = function(data, params) {
+            data$width <- data$width %||%
+              params$width %||% (resolution(data$x, FALSE) * 0.9)
+            # ymin, ymax, xmin, and xmax define the bounding rectangle for each group
+            data %>%
+              group_by(group) %>%
+              mutate(ymin = min(y),
+                     ymax = max(y),
+                     xmin = x,
+                     xmax = x + width / 2) 
+          },
+          draw_group = function(data, panel_scales, coord) {
+            # Find the points for the line to go all the way around
+            data <- transform(data, xminv = x,
+                              xmaxv = x + violinwidth * (xmax - x))
+            # Make sure it's sorted properly to draw the outline
+            newdata <- rbind(plyr::arrange(transform(data, x = xminv), y),
+                             plyr::arrange(transform(data, x = xmaxv), -y))
+            # Close the polygon: set first and last point the same
+            # Needed for coord_polar and such
+            newdata <- rbind(newdata, newdata[1,])
+            ggplot2:::ggname("geom_flat_violin", 
+                             GeomPolygon$draw_panel(newdata, panel_scales, coord)) 
+          },
+          draw_key = draw_key_polygon,
+          default_aes = aes(weight = 1, colour = "grey20", fill = "white", size = 0.5,
+                            alpha = NA, linetype = "solid"),
+          required_aes = c("x", "y")
+  )
+
+```
+
+
+
+###### A549 cells ######
+```{r warning=FALSE, message=FALSE}
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/Viral_reads_segment_distribution/")
+
+```
+
+#### Read gene-counts ####
+```{r warning=FALSE, message=FALSE}
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S2_A549-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S3_A549-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/A549/A549ALLsamples_QCed_gene-expression-matrix_S4_A549-24h.RData")
+
+```
+
+
+
+#### Plot the distribution of virus reads in each cell for each sample ####
+```{r warning=FALSE, message=FALSE}
+s2_vreads <- s2[(nrow(s2)-7):nrow(s2),]
+s2_vreadsum <- as.data.frame(colSums(s2_vreads))
+s2_vreadsum$V2 <- rownames(s2_vreadsum)
+s2_hreads <- s2[1:(nrow(s2)-8),]
+s2_hreadsum <- as.data.frame(colSums(s2_hreads))
+s2_hreadsum$V2 <- rownames(s2_hreadsum)
+s2_vhreadsum <- merge(s2_vreadsum, s2_hreadsum, by="V2")
+colnames(s2_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s3_vreads <- s3[(nrow(s3)-7):nrow(s3),]
+s3_vreadsum <- as.data.frame(colSums(s3_vreads))
+s3_vreadsum$V2 <- rownames(s3_vreadsum)
+s3_hreads <- s3[1:(nrow(s3)-8),]
+s3_hreadsum <- as.data.frame(colSums(s3_hreads))
+s3_hreadsum$V2 <- rownames(s3_hreadsum)
+s3_vhreadsum <- merge(s3_vreadsum, s3_hreadsum, by="V2")
+colnames(s3_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s4_vreads <- s4[(nrow(s4)-7):nrow(s4),]
+s4_vreadsum <- as.data.frame(colSums(s4_vreads))
+s4_vreadsum$V2 <- rownames(s4_vreadsum)
+s4_hreads <- s4[1:(nrow(s4)-8),]
+s4_hreadsum <- as.data.frame(colSums(s4_hreads))
+s4_hreadsum$V2 <- rownames(s4_hreadsum)
+s4_vhreadsum <- merge(s4_vreadsum, s4_hreadsum, by="V2")
+colnames(s4_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s2_vhreadsum$V4 <- 100*s2_vhreadsum$viralreads/
+  (s2_vhreadsum$viralreads + s2_vhreadsum$hostreads)
+s3_vhreadsum$V4 <- 100*s3_vhreadsum$viralreads/
+  (s3_vhreadsum$viralreads + s3_vhreadsum$hostreads)
+s4_vhreadsum$V4 <- 100*s4_vhreadsum$viralreads/
+  (s4_vhreadsum$viralreads + s4_vhreadsum$hostreads)
+
+s2_vhreadsum <- s2_vhreadsum[order(s2_vhreadsum$V4, decreasing=TRUE),]
+s3_vhreadsum <- s3_vhreadsum[order(s3_vhreadsum$V4, decreasing=TRUE),]
+s4_vhreadsum <- s4_vhreadsum[order(s4_vhreadsum$V4, decreasing=TRUE),]
+
+s2_vhreadsum$V5 <- seq(from=1, to=nrow(s2_vhreadsum))
+s3_vhreadsum$V5 <- seq(from=1, to=nrow(s3_vhreadsum))
+s4_vhreadsum$V5 <- seq(from=1, to=nrow(s4_vhreadsum))
+
+s2_vhreadsum$V6 <- "A549_6hpi"
+s3_vhreadsum$V6 <- "A549_12hpi"
+s4_vhreadsum$V6 <- "A549_24hpi"
+
+s2_vhreadsum <- s2_vhreadsum[, 4:6]
+s3_vhreadsum <- s3_vhreadsum[, 4:6]
+s4_vhreadsum <- s4_vhreadsum[, 4:6]
+
+s234_vhreadsum <- rbind(s2_vhreadsum, s3_vhreadsum, s4_vhreadsum)
+s234_vhreadsum$V6 <- factor(s234_vhreadsum$V6, 
+                            levels=c("A549_6hpi",
+                                     "A549_12hpi",
+                                     "A549_24hpi"))
+
+# raincloud plot
+s234_vhreadsum_bp <- s234_vhreadsum
+s234_vhreadsum_bp$V6 <- gsub("A549_", "", s234_vhreadsum_bp$V6)
+s234_vhreadsum_bp$V6 <- factor(s234_vhreadsum_bp$V6, levels=c("6hpi", "12hpi", "24hpi"))
+ggplot(data=s234_vhreadsum_bp, aes(y=V4, x=V6, fill=V6)) +
+  geom_flat_violin(position=position_nudge(x=.2, y=0), alpha=.8) +
+  geom_point(aes(y=V4, color=V6), position=position_jitter(width=.15), size=.5, alpha=0.8) +
+  geom_boxplot(width=.2, guides=FALSE, outlier.shape=NA, alpha=0, lwd=0.8) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d")) +
+  scale_fill_manual(values=c("#b1df01", "olivedrab4", "#466b5d")) +
+  theme(plot.title=element_text(size=15, hjust = 0.5), 
+        axis.title=element_text(size=15),
+        text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  labs(list(title="Distribution of relative abundance of viral transcripts", 
+            x="Time points", y="Relative abundance of viral transcripts"))
+
+
+## Test if the overall viral read percentage increase over time
+kruskal.test(V4 ~ V6, s234_vhreadsum) 
+s23_vhreadsum <- s234_vhreadsum[s234_vhreadsum$V6 == "A549_6hpi" |
+                                  s234_vhreadsum$V6 == "A549_12hpi", ]
+s24_vhreadsum <- s234_vhreadsum[s234_vhreadsum$V6 == "A549_6hpi" |
+                                  s234_vhreadsum$V6 == "A549_24hpi", ]
+s34_vhreadsum <- s234_vhreadsum[s234_vhreadsum$V6 == "A549_12hpi" |
+                                  s234_vhreadsum$V6 == "A549_24hpi", ]
+wilcox.test(V4 ~ V6, s23_vhreadsum, alternative="less") 
+wilcox.test(V4 ~ V6, s34_vhreadsum, alternative="less") 
+wilcox.test(V4 ~ V6, s24_vhreadsum, alternative="less") 
+
+```
+
+
+
+#### Plot the distribution of viral reads with 8 segments separated colored ####
+```{r warning=FALSE, message=FALSE}
+seg_name <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s2_vseg <- s2_vreads
+rownames(s2_vseg) <- seg_name
+
+s3_vseg <- s3_vreads
+rownames(s3_vseg) <- seg_name
+
+s4_vseg <- s4_vreads
+rownames(s4_vseg) <- seg_name
+
+## Sample2 ##
+s2_vseg <- t(s2_vseg)
+s2_vsegpercent <- cbind(s2_vseg, s2_vreadsum[, 1], s2_hreadsum)
+colnames(s2_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s2_vsegpercent[, i] <- 100 * s2_vsegpercent[, i] / 
+    (s2_vsegpercent[, "viralreadsum"] + s2_vsegpercent[, "hostreadsum"])
+}
+
+s2_vsegpercent$viralreadpercent <- 100*s2_vsegpercent$viralreadsum/
+  (s2_vsegpercent$viralreadsum + s2_vsegpercent$hostreadsum)
+s2_vsegpercent <- s2_vsegpercent[order(s2_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE), ]
+s2_vsegpercent$rank <- seq(1, nrow(s2_vsegpercent), 1)
+s2_vsegpercent$viralreadsum <- NULL
+s2_vsegpercent$hostreadsum <- NULL
+s2_vsegpercent$cellID <- NULL
+s2_vsegpercent$viralreadpercent <- NULL
+
+s2_vsegpercent_new <- melt(s2_vsegpercent, id.vars="rank")
+s2_vsegpercent_new$sample <- "A549_6hpi"
+
+
+## Sample3 ##
+s3_vseg <- t(s3_vseg)
+s3_vsegpercent <- cbind(s3_vseg, s3_vreadsum[,1], s3_hreadsum)
+colnames(s3_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s3_vsegpercent[, i] <- 100 * s3_vsegpercent[, i] / 
+    (s3_vsegpercent[, "viralreadsum"] + s3_vsegpercent[, "hostreadsum"])
+}
+
+s3_vsegpercent$viralreadpercent <- 100*s3_vsegpercent$viralreadsum/
+  (s3_vsegpercent$viralreadsum + s3_vsegpercent$hostreadsum)
+s3_vsegpercent <- s3_vsegpercent[order(s3_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE),]
+s3_vsegpercent$rank <- seq(1, nrow(s3_vsegpercent), 1)
+s3_vsegpercent$viralreadsum <- NULL
+s3_vsegpercent$hostreadsum <- NULL
+s3_vsegpercent$cellID <- NULL
+s3_vsegpercent$viralreadpercent <- NULL
+
+s3_vsegpercent_new <- melt(s3_vsegpercent, id.vars="rank")
+s3_vsegpercent_new$sample <- "A549_12hpi"
+
+
+## Sample4 ##
+s4_vseg <- t(s4_vseg)
+s4_vsegpercent <- cbind(s4_vseg, s4_vreadsum[,1], s4_hreadsum)
+colnames(s4_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s4_vsegpercent[, i] <- 100 * s4_vsegpercent[, i] / 
+    (s4_vsegpercent[, "viralreadsum"] + s4_vsegpercent[, "hostreadsum"])
+}
+
+s4_vsegpercent$viralreadpercent <- 100*s4_vsegpercent$viralreadsum/
+  (s4_vsegpercent$viralreadsum + s4_vsegpercent$hostreadsum)
+s4_vsegpercent <- s4_vsegpercent[order(s4_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE),]
+s4_vsegpercent$rank <- seq(1, nrow(s4_vsegpercent), 1)
+s4_vsegpercent$viralreadsum <- NULL
+s4_vsegpercent$hostreadsum <- NULL
+s4_vsegpercent$cellID <- NULL
+s4_vsegpercent$viralreadpercent <- NULL
+
+s4_vsegpercent_new <- melt(s4_vsegpercent, id.vars="rank")
+s4_vsegpercent_new$sample <- "A549_24hpi"
+
+
+## merge sample 2,3,4 and plot
+s234_vseg <- rbind(s2_vsegpercent_new, s3_vsegpercent_new, s4_vsegpercent_new)
+s234_vseg$sample <- factor(s234_vseg$sample,
+                           levels=c("A549_6hpi",
+                                    "A549_12hpi",
+                                    "A549_24hpi"))
+s234_vseg$value <- as.numeric(s234_vseg$value)
+
+ggplot(s234_vseg, aes(rank, value, fill=variable)) + 
+  geom_bar(stat="identity") +
+  facet_grid(.~sample) +
+  labs(list(x="Cells", y="Relative abundance of viral transcripts")) + 
+  theme(plot.title=element_text(size=15, hjust = 0.5), 
+        text=element_text(size=15),
+        legend.title=element_blank(),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_x_continuous(breaks=seq(0, 3000, 1000), limits=c(0, 3700)) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) + 
+  scale_fill_manual(labels=seg_name,
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"))
+
+```
+
+
+
+#### Check the median of the viral read percentage for each viral segment in the library size ####
+```{r warning=FALSE, message=FALSE}
+s2_vsegpercent_median <- as.data.frame(apply(as.matrix(s2_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s3_vsegpercent_median <- as.data.frame(apply(as.matrix(s3_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s4_vsegpercent_median <- as.data.frame(apply(as.matrix(s4_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s234_vsegpercent_median <- cbind(s2_vsegpercent_median, s3_vsegpercent_median,
+                                 s4_vsegpercent_median)
+colnames(s234_vsegpercent_median) <- c("A549_6hpi", "A549_12hpi", "A549_24hpi")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+write.csv(s234_vsegpercent_median, file="A549_3timepoints_viral-segment-percentage-in-library_median.csv")
+
+```
+
+
+
+#### Grey out cells with any segment that has lower than 1% of the total viral reads ####
+```{r warning=FALSE, message=FALSE}
+## Sample2 ##
+# Filter segment < 1%
+s2_vseg_vpercent <- as.data.frame(s2_vseg)
+s2_vseg_vpercent$ssum <- rowSums(s2_vseg_vpercent)
+for(i in 1:8){
+  s2_vseg_vpercent[,i] <- 100*s2_vseg_vpercent[,i] / s2_vseg_vpercent[,9]
+}
+s2_vseg_vpercent$ssum <- NULL
+
+s2_vseg_min <- data.frame(min=apply(s2_vseg_vpercent, 1, min))
+s2_vseg_min[is.na(s2_vseg_min)] <- 0
+s2_vseg_min$cellID <- rownames(s2_vseg_min)
+
+s2_vsegpercent$cellID <- rownames(s2_vsegpercent)
+s2_vseg_min_rank_merge <- merge(s2_vseg_min, s2_vsegpercent[,9:10], by.y="cellID")
+s2_vsegpercent$cellID <- NULL
+
+s2_vsegpercent_new <- melt(s2_vsegpercent, id.vars="rank")
+s2_vsegpercent_new <- merge(s2_vsegpercent_new, s2_vseg_min_rank_merge, by.y="rank")
+s2_vsegpercent_new_part1 <- s2_vsegpercent_new[s2_vsegpercent_new$min < 1, ]
+s2_vsegpercent_new_part2 <- s2_vsegpercent_new[s2_vsegpercent_new$min >= 1, ]
+
+s2_vsegpercent_new_part1$variable <- NA
+
+s2_vsegpercent_new <- rbind(s2_vsegpercent_new_part1, s2_vsegpercent_new_part2)
+s2_vsegpercent_new$min <- NULL
+s2_vsegpercent_new$sample <- "A549_6hpi"
+s2_vsegpercent_new$variable <- factor(s2_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP",
+                                               "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s2_vseg_fail <-s2_vseg_vpercent
+s2_vseg_fail$cell <- rownames(s2_vseg_fail)
+s2_vseg_fail <- melt(s2_vseg_fail, id.vars="cell")
+colnames(s2_vseg_fail) <- c("cell", "segment", "percentage")
+s2_vseg_fail <- s2_vseg_fail[s2_vseg_fail$percentage < 1, ]
+s2_vseg_fail_freq <- count(s2_vseg_fail$segment)
+s2_vseg_fail_freq$percentage <- 
+  s2_vseg_fail_freq$freq / sum(s2_vseg_fail_freq$freq) * 100
+s2_vseg_fail_freq$sample <- rep("A549 6h", nrow(s2_vseg_fail_freq))
+colnames(s2_vseg_fail_freq)[1] <- "segment"
+
+
+## Sample3 ##
+# Filter segment < 1%
+s3_vseg_vpercent <- as.data.frame(s3_vseg)
+s3_vseg_vpercent$ssum <- rowSums(s3_vseg_vpercent)
+for(i in 1:8){
+  s3_vseg_vpercent[,i] <- 100*s3_vseg_vpercent[,i] / s3_vseg_vpercent[,9]
+}
+s3_vseg_vpercent$ssum <- NULL
+
+s3_vseg_min <- data.frame(min=apply(s3_vseg_vpercent, 1, min))
+s3_vseg_min[is.na(s3_vseg_min)] = 0
+s3_vseg_min$cellID <- rownames(s3_vseg_min)
+
+s3_vsegpercent$cellID <- rownames(s3_vsegpercent)
+s3_vseg_min_rank_merge <- merge(s3_vseg_min, s3_vsegpercent[, 9:10])
+s3_vsegpercent$cellID <- NULL
+
+s3_vsegpercent_new <- melt(s3_vsegpercent, id.vars="rank")
+s3_vsegpercent_new <- merge(s3_vsegpercent_new, s3_vseg_min_rank_merge)
+s3_vsegpercent_new_part1 <- s3_vsegpercent_new[s3_vsegpercent_new$min < 1, ]
+s3_vsegpercent_new_part2 <- s3_vsegpercent_new[s3_vsegpercent_new$min >= 1, ]
+
+s3_vsegpercent_new_part1$variable <- NA
+
+s3_vsegpercent_new <- rbind(s3_vsegpercent_new_part1, s3_vsegpercent_new_part2)
+s3_vsegpercent_new$min <- NULL
+s3_vsegpercent_new$sample <- "A549_12hpi"
+s3_vsegpercent_new$variable <- factor(s3_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP",
+                                               "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s3_vseg_fail <-s3_vseg_vpercent
+s3_vseg_fail$cell <- rownames(s3_vseg_fail)
+s3_vseg_fail <- melt(s3_vseg_fail, id.vars="cell")
+colnames(s3_vseg_fail) <- c("cell", "segment", "percentage")
+s3_vseg_fail <- s3_vseg_fail[s3_vseg_fail$percentage < 1, ]
+s3_vseg_fail_freq <- count(s3_vseg_fail$segment)
+s3_vseg_fail_freq$percentage <- 
+  s3_vseg_fail_freq$freq / sum(s3_vseg_fail_freq$freq) * 100
+s3_vseg_fail_freq$sample <- rep("A549 12h", nrow(s3_vseg_fail_freq))
+colnames(s3_vseg_fail_freq)[1] <- "segment"
+
+
+## Sample4 ##
+# Filter segment < 1%
+s4_vseg_vpercent <- as.data.frame(s4_vseg)
+s4_vseg_vpercent$ssum <- rowSums(s4_vseg_vpercent)
+for(i in 1:8){
+  s4_vseg_vpercent[,i] <- 100*s4_vseg_vpercent[,i] / s4_vseg_vpercent[,9]
+}
+s4_vseg_vpercent$ssum <- NULL
+
+s4_vseg_min <- data.frame(min=apply(s4_vseg_vpercent, 1, min))
+s4_vseg_min[is.na(s4_vseg_min)] = 0
+s4_vseg_min$cellID <- rownames(s4_vseg_min)
+
+s4_vsegpercent$cellID <- rownames(s4_vsegpercent)
+s4_vseg_min_rank_merge <- merge(s4_vseg_min, s4_vsegpercent[,9:10])
+s4_vsegpercent$cellID <- NULL
+
+s4_vsegpercent_new <- melt(s4_vsegpercent, id.vars="rank")
+s4_vsegpercent_new <- merge(s4_vsegpercent_new, s4_vseg_min_rank_merge)
+s4_vsegpercent_new_part1 <- s4_vsegpercent_new[s4_vsegpercent_new$min < 1, ]
+s4_vsegpercent_new_part2 <- s4_vsegpercent_new[s4_vsegpercent_new$min >= 1, ]
+
+s4_vsegpercent_new_part1$variable <- NA
+
+s4_vsegpercent_new <- rbind(s4_vsegpercent_new_part1, s4_vsegpercent_new_part2)
+s4_vsegpercent_new$min <- NULL
+s4_vsegpercent_new$sample <- "A549_24hpi"
+s4_vsegpercent_new$variable <- factor(s4_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP",
+                                               "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s4_vseg_fail <-s4_vseg_vpercent
+s4_vseg_fail$cell <- rownames(s4_vseg_fail)
+s4_vseg_fail <- melt(s4_vseg_fail, id.vars="cell")
+colnames(s4_vseg_fail) <- c("cell", "segment", "percentage")
+s4_vseg_fail <- s4_vseg_fail[s4_vseg_fail$percentage < 1, ]
+s4_vseg_fail_freq <- count(s4_vseg_fail$segment)
+s4_vseg_fail_freq$percentage <- 
+  s4_vseg_fail_freq$freq / sum(s4_vseg_fail_freq$freq) * 100
+s4_vseg_fail_freq$sample <- rep("A549 24h", nrow(s4_vseg_fail_freq))
+colnames(s4_vseg_fail_freq)[1] <- "segment"
+
+
+## Plot sample 2, 3, 4 together in the greyout plot
+s234_vsegpercent_new <- rbind(s2_vsegpercent_new, s3_vsegpercent_new, s4_vsegpercent_new)
+s234_vsegpercent_new$sample <- factor(s234_vsegpercent_new$sample,
+                                      levels=c("A549_6hpi",
+                                               "A549_12hpi",
+                                               "A549_24hpi"))
+
+s234_vsegpercent_new_v2 <- s234_vsegpercent_new
+s234_vsegpercent_new_v2$sample <- gsub("A549_", "", s234_vsegpercent_new$sample)
+s234_vsegpercent_new_v2$sample <- factor(s234_vsegpercent_new_v2$sample,
+                                         levels=c("6hpi", "12hpi", "24hpi"))
+
+ggplot(s234_vsegpercent_new_v2, aes(rank, value, fill=variable)) + 
+  facet_grid(. ~ sample) +
+  geom_bar(stat="identity") +
+  labs(list(x="Cells", y="Relative abundance of viral transcripts")) + 
+  theme(text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal",
+        legend.title=element_blank(),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_x_continuous(breaks=seq(0, 3000, 1000), limits=c(0, 3700)) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  scale_fill_manual(labels=c(seg_name, "Any segment with less than 1% viral reads"),
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"),
+                    na.value="gray30")
+
+
+## Check the percentage of gray-out cells in the top 5% cells
+s2_vseg_min_rank_merge_sort <- 
+  s2_vseg_min_rank_merge[order(s2_vseg_min_rank_merge$rank),]
+rownames(s2_vseg_min_rank_merge_sort) <- s2_vseg_min_rank_merge_sort$rank
+100* sum(s2_vseg_min_rank_merge_sort[1:round(nrow(s2_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s2_vseg_min_rank_merge_sort)*0.05)
+
+s3_vseg_min_rank_merge_sort <- 
+  s3_vseg_min_rank_merge[order(s3_vseg_min_rank_merge$rank),]
+rownames(s3_vseg_min_rank_merge_sort) <- s3_vseg_min_rank_merge_sort$rank
+100* sum(s3_vseg_min_rank_merge_sort[1:round(nrow(s3_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s3_vseg_min_rank_merge_sort)*0.05)
+
+s4_vseg_min_rank_merge_sort <- 
+  s4_vseg_min_rank_merge[order(s4_vseg_min_rank_merge$rank),]
+rownames(s4_vseg_min_rank_merge_sort) <- s4_vseg_min_rank_merge_sort$rank
+100* sum(s4_vseg_min_rank_merge_sort[1:round(nrow(s4_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s4_vseg_min_rank_merge_sort)*0.05)
+
+
+## Plot the frequency of segments with < 1% reads among 8 segments in top 5% gray-out cells in sample2, 3, and 4
+# S2
+s2_vseg_fail_top5p <- s2_vseg_vpercent
+s2_vseg_min_rank_merge_top5p_fail <- 
+  s2_vseg_min_rank_merge_sort[s2_vseg_min_rank_merge_sort$min < 1, ]
+s2_vseg_min_rank_merge_top5p_fail <- 
+  s2_vseg_min_rank_merge_top5p_fail[s2_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s2_vseg_vpercent)), ]
+s2_vseg_fail_top5p <- s2_vseg_fail_top5p[s2_vseg_min_rank_merge_top5p_fail$cellID, ]
+s2_vseg_fail_top5p$cell <- rownames(s2_vseg_fail_top5p)
+s2_vseg_fail_top5p <- melt(s2_vseg_fail_top5p, id.vars="cell")
+colnames(s2_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s2_vseg_fail_top5p <- s2_vseg_fail_top5p[s2_vseg_fail_top5p$percentage < 1, ]
+s2_vseg_fail_top5p_freq <- count(s2_vseg_fail_top5p$segment)
+s2_vseg_fail_top5p_freq$percentage <- 
+  s2_vseg_fail_top5p_freq$freq / sum(s2_vseg_fail_top5p_freq$freq) * 100
+s2_vseg_fail_top5p_freq$sample <- rep("A549 6h", nrow(s2_vseg_fail_top5p_freq))
+colnames(s2_vseg_fail_top5p_freq)[1] <- "segment"
+
+# S3
+s3_vseg_fail_top5p <-s3_vseg_vpercent
+s3_vseg_min_rank_merge_top5p_fail <- 
+  s3_vseg_min_rank_merge_sort[s3_vseg_min_rank_merge_sort$min < 1, ]
+s3_vseg_min_rank_merge_top5p_fail <- 
+  s3_vseg_min_rank_merge_top5p_fail[s3_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s3_vseg_vpercent)), ]
+s3_vseg_fail_top5p <- s3_vseg_fail_top5p[s3_vseg_min_rank_merge_top5p_fail$cellID, ]
+s3_vseg_fail_top5p$cell <- rownames(s3_vseg_fail_top5p)
+s3_vseg_fail_top5p <- melt(s3_vseg_fail_top5p, id.vars="cell")
+colnames(s3_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s3_vseg_fail_top5p <- s3_vseg_fail_top5p[s3_vseg_fail_top5p$percentage < 1, ]
+s3_vseg_fail_top5p_freq <- count(s3_vseg_fail_top5p$segment)
+s3_vseg_fail_top5p_freq$percentage <- 
+  s3_vseg_fail_top5p_freq$freq / sum(s3_vseg_fail_top5p_freq$freq) * 100
+s3_vseg_fail_top5p_freq$sample <- rep("A549 12h", nrow(s3_vseg_fail_top5p_freq))
+colnames(s3_vseg_fail_top5p_freq)[1] <- "segment"
+
+# S4
+s4_vseg_fail_top5p <-s4_vseg_vpercent
+s4_vseg_min_rank_merge_top5p_fail <- 
+  s4_vseg_min_rank_merge_sort[s4_vseg_min_rank_merge_sort$min < 1, ]
+s4_vseg_min_rank_merge_top5p_fail <- 
+  s4_vseg_min_rank_merge_top5p_fail[s4_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s4_vseg_vpercent)), ]
+s4_vseg_fail_top5p <- s4_vseg_fail_top5p[s4_vseg_min_rank_merge_top5p_fail$cellID, ]
+s4_vseg_fail_top5p$cell <- rownames(s4_vseg_fail_top5p)
+s4_vseg_fail_top5p <- melt(s4_vseg_fail_top5p, id.vars="cell")
+colnames(s4_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s4_vseg_fail_top5p <- s4_vseg_fail_top5p[s4_vseg_fail_top5p$percentage < 1, ]
+s4_vseg_fail_top5p_freq <- count(s4_vseg_fail_top5p$segment)
+s4_vseg_fail_top5p_freq$percentage <- 
+  s4_vseg_fail_top5p_freq$freq / sum(s4_vseg_fail_top5p_freq$freq) * 100
+s4_vseg_fail_top5p_freq$sample <- rep("A549 24h", nrow(s4_vseg_fail_top5p_freq))
+colnames(s4_vseg_fail_top5p_freq)[1] <- "segment"
+
+s2_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s2_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s2_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s2_vseg_fail_top5p_freq$segment])),
+                                           "sample"="A549 6h")
+s3_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s3_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s3_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s3_vseg_fail_top5p_freq$segment])),
+                                           "sample"="A549 12h")
+s4_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s4_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s4_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s4_vseg_fail_top5p_freq$segment])),
+                                           "sample"="A549 24h")
+s234_vseg_fail_freq_top5p <- rbind(s2_vseg_fail_top5p_freq, s3_vseg_fail_top5p_freq, 
+                                   s4_vseg_fail_top5p_freq,
+                                   s2_vseg_fail_freq_fill_top5p, 
+                                   s3_vseg_fail_freq_fill_top5p,
+                                   s4_vseg_fail_freq_fill_top5p)
+s234_vseg_fail_freq_top5p$sample <- factor(s234_vseg_fail_freq_top5p$sample,
+                                           levels=c("A549 6h", "A549 12h", "A549 24h"))
+
+s234_vseg_fail_freq_top5p_v2 <-s234_vseg_fail_freq_top5p
+s234_vseg_fail_freq_top5p_v2$sample <- gsub("A549 ", "", s234_vseg_fail_freq_top5p_v2$sample)
+s234_vseg_fail_freq_top5p_v2$sample <- gsub("h", "hpi", s234_vseg_fail_freq_top5p_v2$sample)
+s234_vseg_fail_freq_top5p_v2$sample <- factor(s234_vseg_fail_freq_top5p_v2$sample,
+                                              levels=c("6hpi", "12hpi", "24hpi"))
+
+g <- ggplot(s234_vseg_fail_freq_top5p_v2, aes(x=sample, y=percentage, fill=segment))
+g + geom_bar(stat="identity", width=0.8) +
+  labs(x="Time point", y="Percentage of cells", fill="Segment") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_fill_manual(labels=seg_name,
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"))
+
+```
+
+
+
+#### Plot the distribution of each segment in each sample during infection ####
+```{r warning=FALSE, message=FALSE}
+s234_vseg_segname <- s234_vseg
+s234_vseg_segname$variable <- factor(s234_vseg_segname$variable,
+                                     levels=c("PB2", "PB1", "PA", "HA",
+                                              "NP", "NA", "M", "NS"))
+s234_vseg_segname$sample <- gsub("A549_", "", s234_vseg_segname$sample)
+s234_vseg_segname$sample <- factor(s234_vseg_segname$sample,
+                                   levels=c("6hpi", "12hpi", "24hpi"))
+
+p <- ggplot(s234_vseg_segname, aes(sample, value))
+p + geom_jitter(aes(sample, value, colour=sample), size=0.5, alpha=0.5) +
+  geom_boxplot(outlier.size=0.5, lwd=0.6, width=0.6, show.legend=FALSE, fill=NA) +
+  facet_wrap(~variable)+
+  labs(x="Time point", y="Relative abundance of viral transcripts derived from each segment", colour="Sample") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  scale_y_continuous(breaks=seq(0, 50, 5), limits=c(0, 50)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d"))
+
+
+## Test if the increase in each viral segment over time is significant
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "PB2", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "PB1", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "PA", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "HA", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "NP", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "NA", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "M", ]) 
+kruskal.test(value ~ sample, s234_vseg_segname[s234_vseg_segname$variable == "NS", ]) 
+
+# PB2
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB2" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB2" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB2" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# PB1
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB1" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB1" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PB1" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# PA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PA" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PA" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less")
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "PA" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# HA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "HA" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "HA" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "HA" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NP
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NP" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less")
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NP" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NP" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NA" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NA" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NA" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# M
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "M" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "M" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "M" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NS
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NS" & 
+                                s234_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NS" & 
+                                s234_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s234_vseg_segname[s234_vseg_segname$variable == "NS" & 
+                                s234_vseg_segname$sample != "6hpi", ],
+            alternative="less")
+
+```
+
+
+
+#### Plot the distribution of the percentage of each segment among 8 viral segments (in the viral mRNA pool) ####
+```{r warning=FALSE, message=FALSE}
+s2_vseg_vpercent_melt <- melt(s2_vseg_vpercent)
+s3_vseg_vpercent_melt <- melt(s3_vseg_vpercent)
+s4_vseg_vpercent_melt <- melt(s4_vseg_vpercent)
+s2_vseg_vpercent_melt$sample <- "6hpi"
+s3_vseg_vpercent_melt$sample <- "12hpi"
+s4_vseg_vpercent_melt$sample <- "24hpi"
+s234_vseg_vpercent_melt <- rbind(s2_vseg_vpercent_melt, 
+                                 s3_vseg_vpercent_melt,
+                                 s4_vseg_vpercent_melt)
+s234_vseg_vpercent_melt$sample <- factor(s234_vseg_vpercent_melt$sample,
+                                         levels=c("6hpi", "12hpi", "24hpi"))
+s234_vseg_vpercent_melt$variable <- factor(s234_vseg_vpercent_melt$variable,
+                                           levels=c("PB2", "PB1", "PA", "HA",
+                                                    "NP", "NA", "M", "NS"))
+
+p <- ggplot(s234_vseg_vpercent_melt, aes(sample, value))
+p + geom_jitter(aes(sample, value, colour=sample), size=0.5, alpha=0.5) +
+  geom_boxplot(outlier.size=0.5, lwd=0.6, width=0.6, show.legend=FALSE, fill=NA) +
+  facet_wrap(~variable)+
+  labs(x="Time point", y="Relative abundance of viral transcripts \n derived from each segment", colour="Sample") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  scale_y_continuous(breaks=seq(0, 80, 10)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d"))
+
+```
+
+
+
+#### Extract the median of viral read percentage in the viral mRNA pool for each segment ####
+```{r warning=FALSE, message=FALSE}
+s2_vseg_vpercent_median <- as.data.frame(apply(s2_vseg_vpercent, 2, median))
+colnames(s2_vseg_vpercent_median) <- "s2"
+
+s3_vseg_vpercent_median <- as.data.frame(apply(s3_vseg_vpercent, 2, median))
+colnames(s3_vseg_vpercent_median) <- "s3"
+
+s4_vseg_vpercent_median <- as.data.frame(apply(s4_vseg_vpercent, 2, median))
+colnames(s4_vseg_vpercent_median) <- "s4"
+
+s234_vseg_vpercent_median <- cbind(s2_vseg_vpercent_median, s3_vseg_vpercent_median,
+                                   s4_vseg_vpercent_median)
+s234_vseg_vpercent_median_round <- round(s234_vseg_vpercent_median, digits=1)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+write.csv(s234_vseg_vpercent_median_round, 
+          file="A549_3timepoints_viral-segment-percentage-in-vmRNA-pool_median.csv")
+
+```
+
+
+
+#### Check the number of cells with how many segments having extremely low expression ####
+```{r warning=FALSE, message=FALSE}
+s2_top5p_fail_vseg_vpercent <- s2_vseg_vpercent[s2_vseg_min_rank_merge_top5p_fail$cellID, ]
+s3_top5p_fail_vseg_vpercent <- s3_vseg_vpercent[s3_vseg_min_rank_merge_top5p_fail$cellID, ]
+s4_top5p_fail_vseg_vpercent <- s4_vseg_vpercent[s4_vseg_min_rank_merge_top5p_fail$cellID, ]
+
+s2_top5p_fail_segnum <- as.data.frame(rowSums(s2_top5p_fail_vseg_vpercent < 1))
+colnames(s2_top5p_fail_segnum) <- "number_mis_seg"
+s3_top5p_fail_segnum <- as.data.frame(rowSums(s3_top5p_fail_vseg_vpercent < 1))
+colnames(s3_top5p_fail_segnum) <- "number_mis_seg"
+s4_top5p_fail_segnum <- as.data.frame(rowSums(s4_top5p_fail_vseg_vpercent < 1))
+colnames(s4_top5p_fail_segnum) <- "number_mis_seg"
+
+s2_top5p_fail_segnum$number_mis_seg <- factor(s2_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+s3_top5p_fail_segnum$number_mis_seg <- factor(s3_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+s4_top5p_fail_segnum$number_mis_seg <- factor(s4_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+
+s2_top5p_fail_segnum_tb <- as.data.frame(table(s2_top5p_fail_segnum))
+s3_top5p_fail_segnum_tb <- as.data.frame(table(s3_top5p_fail_segnum))
+s4_top5p_fail_segnum_tb <- as.data.frame(table(s4_top5p_fail_segnum))
+
+s2_top5p_fail_segnum_tb$Freq <- 100 * s2_top5p_fail_segnum_tb$Freq / sum(s2_top5p_fail_segnum_tb$Freq)
+s3_top5p_fail_segnum_tb$Freq <- 100 * s3_top5p_fail_segnum_tb$Freq / sum(s3_top5p_fail_segnum_tb$Freq)
+s4_top5p_fail_segnum_tb$Freq <- 100 * s4_top5p_fail_segnum_tb$Freq / sum(s4_top5p_fail_segnum_tb$Freq)
+
+colnames(s2_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+colnames(s3_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+colnames(s4_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+
+s2_top5p_fail_segnum_tb$sample <- rep("6hpi", nrow(s2_top5p_fail_segnum_tb))
+s3_top5p_fail_segnum_tb$sample <- rep("12hpi", nrow(s3_top5p_fail_segnum_tb))
+s4_top5p_fail_segnum_tb$sample <- rep("24hpi", nrow(s4_top5p_fail_segnum_tb))
+
+s234_top5p_fail_segnum_tb <- rbind(s2_top5p_fail_segnum_tb, s3_top5p_fail_segnum_tb,
+                                   s4_top5p_fail_segnum_tb)
+s234_top5p_fail_segnum_tb$sample <- factor(s234_top5p_fail_segnum_tb$sample,
+                                           levels=c("6hpi", "12hpi", "24hpi"))
+
+ggplot(s234_top5p_fail_segnum_tb, aes(x=sample, y=Freq, fill=Number_missing_seg)) + 
+  geom_histogram(stat="identity") +
+  labs(x="Time point", 
+       y="Percentage of top 5% cells with at least \n one extremely lowly expressed viral segment ", 
+       fill="") +
+  theme(panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.key.size=unit(1, "cm")) +
+  scale_fill_manual(values=c("slateblue", "gold"))
+
+```
+
+
+
+###### HBEpC cells ######
+```{r warning=FALSE, message=FALSE}
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/Viral_reads_segment_distribution/")
+
+```
+
+
+
+#### Read gene-counts ####
+```{r warning=FALSE, message=FALSE}
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S6_HBEpC-6h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S7_HBEpC-12h.RData")
+load("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S8_HBEpC-24h.RData")
+
+```
+
+
+
+#### Plot the distribution of virus reads in each cell for each sample ####
+```{r warning=FALSE, message=FALSE}
+s6_vreads <- s6[(nrow(s6)-7):nrow(s6),]
+s6_vreadsum <- as.data.frame(colSums(s6_vreads))
+s6_vreadsum$V2 <- rownames(s6_vreadsum)
+s6_hreads <- s6[1:(nrow(s6)-8),]
+s6_hreadsum <- as.data.frame(colSums(s6_hreads))
+s6_hreadsum$V2 <- rownames(s6_hreadsum)
+s6_vhreadsum <- merge(s6_vreadsum, s6_hreadsum, by="V2")
+colnames(s6_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s7_vreads <- s7[(nrow(s7)-7):nrow(s7),]
+s7_vreadsum <- as.data.frame(colSums(s7_vreads))
+s7_vreadsum$V2 <- rownames(s7_vreadsum)
+s7_hreads <- s7[1:(nrow(s7)-8),]
+s7_hreadsum <- as.data.frame(colSums(s7_hreads))
+s7_hreadsum$V2 <- rownames(s7_hreadsum)
+s7_vhreadsum <- merge(s7_vreadsum, s7_hreadsum, by="V2")
+colnames(s7_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s8_vreads <- s8[(nrow(s8)-7):nrow(s8),]
+s8_vreadsum <- as.data.frame(colSums(s8_vreads))
+s8_vreadsum$V2 <- rownames(s8_vreadsum)
+s8_hreads <- s8[1:(nrow(s8)-8),]
+s8_hreadsum <- as.data.frame(colSums(s8_hreads))
+s8_hreadsum$V2 <- rownames(s8_hreadsum)
+s8_vhreadsum <- merge(s8_vreadsum, s8_hreadsum, by="V2")
+colnames(s8_vhreadsum) <- c("cellID", "viralreads", "hostreads")
+
+s6_vhreadsum$V4 <- 100*s6_vhreadsum$viralreads/
+  (s6_vhreadsum$viralreads + s6_vhreadsum$hostreads)
+s7_vhreadsum$V4 <- 100*s7_vhreadsum$viralreads/
+  (s7_vhreadsum$viralreads + s7_vhreadsum$hostreads)
+s8_vhreadsum$V4 <- 100*s8_vhreadsum$viralreads/
+  (s8_vhreadsum$viralreads + s8_vhreadsum$hostreads)
+
+s6_vhreadsum <- s6_vhreadsum[order(s6_vhreadsum$V4, decreasing=TRUE),]
+s7_vhreadsum <- s7_vhreadsum[order(s7_vhreadsum$V4, decreasing=TRUE),]
+s8_vhreadsum <- s8_vhreadsum[order(s8_vhreadsum$V4, decreasing=TRUE),]
+
+s6_vhreadsum$V5 <- seq(from=1, to=nrow(s6_vhreadsum))
+s7_vhreadsum$V5 <- seq(from=1, to=nrow(s7_vhreadsum))
+s8_vhreadsum$V5 <- seq(from=1, to=nrow(s8_vhreadsum))
+
+s6_vhreadsum$V6 <- "HBEpC_6hpi"
+s7_vhreadsum$V6 <- "HBEpC_12hpi"
+s8_vhreadsum$V6 <- "HBEpC_24hpi"
+
+s6_vhreadsum <- s6_vhreadsum[, 4:6]
+s7_vhreadsum <- s7_vhreadsum[, 4:6]
+s8_vhreadsum <- s8_vhreadsum[, 4:6]
+
+s678_vhreadsum <- rbind(s6_vhreadsum, s7_vhreadsum, s8_vhreadsum)
+s678_vhreadsum$V6 <- factor(s678_vhreadsum$V6, 
+                            levels=c("HBEpC_6hpi",
+                                     "HBEpC_12hpi",
+                                     "HBEpC_24hpi"))
+
+# raincloud plot
+s678_vhreadsum_bp <- s678_vhreadsum
+s678_vhreadsum_bp$V6 <- gsub("HBEpC_", "", s678_vhreadsum_bp$V6)
+s678_vhreadsum_bp$V6 <- factor(s678_vhreadsum_bp$V6, levels=c("6hpi", "12hpi", "24hpi"))
+ggplot(data=s678_vhreadsum_bp, aes(y=V4, x=V6, fill=V6)) +
+  geom_flat_violin(position=position_nudge(x=.2, y=0), alpha=.8) +
+  geom_point(aes(y=V4, color=V6), position=position_jitter(width=.15), size=.5, alpha=0.8) +
+  geom_boxplot(width=.2, guides=FALSE, outlier.shape=NA, alpha=0, lwd=0.8) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d")) +
+  scale_fill_manual(values=c("#b1df01", "olivedrab4", "#466b5d")) +
+  theme(plot.title=element_text(size=15, hjust = 0.5), 
+        axis.title=element_text(size=15),
+        text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  labs(list(title="Distribution of relative abundance of viral transcripts", 
+            x="Time point", y="Relative abundance of viral transcripts"))
+
+
+## Test if the overall viral read percentage increase over time
+kruskal.test(V4 ~ V6, s678_vhreadsum) 
+s67_vhreadsum <- s678_vhreadsum[s678_vhreadsum$V6 == "HBEpC_6hpi" |
+                                  s678_vhreadsum$V6 == "HBEpC_12hpi", ]
+s68_vhreadsum <- s678_vhreadsum[s678_vhreadsum$V6 == "HBEpC_6hpi" |
+                                  s678_vhreadsum$V6 == "HBEpC_24hpi", ]
+s78_vhreadsum <- s678_vhreadsum[s678_vhreadsum$V6 == "HBEpC_12hpi" |
+                                  s678_vhreadsum$V6 == "HBEpC_24hpi", ]
+wilcox.test(V4 ~ V6, s67_vhreadsum, alternative="less") 
+wilcox.test(V4 ~ V6, s78_vhreadsum, alternative="less") 
+wilcox.test(V4 ~ V6, s78_vhreadsum, alternative="greater") 
+wilcox.test(V4 ~ V6, s68_vhreadsum, alternative="less") 
+
+```
+
+
+
+#### Plot the distribution of viral reads with 8 segments separated colored ####
+```{r warning=FALSE, message=FALSE}
+seg_name <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s6_vseg <- s6_vreads
+rownames(s6_vseg) <- seg_name
+
+s7_vseg <- s7_vreads
+rownames(s7_vseg) <- seg_name
+
+s8_vseg <- s8_vreads
+rownames(s8_vseg) <- seg_name
+
+
+## Sample6 ##
+s6_vseg <- t(s6_vseg)
+s6_vsegpercent <- cbind(s6_vseg, s6_vreadsum[,1], s6_hreadsum)
+colnames(s6_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s6_vsegpercent[, i] <- 100 * s6_vsegpercent[, i] / 
+    (s6_vsegpercent[, "viralreadsum"] + s6_vsegpercent[, "hostreadsum"])
+}
+
+s6_vsegpercent$viralreadpercent <- 100*s6_vsegpercent$viralreadsum/
+  (s6_vsegpercent$viralreadsum + s6_vsegpercent$hostreadsum)
+s6_vsegpercent <- s6_vsegpercent[order(s6_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE),]
+s6_vsegpercent$rank <- seq(1, nrow(s6_vsegpercent), 1)
+s6_vsegpercent$viralreadsum <- NULL
+s6_vsegpercent$hostreadsum <- NULL
+s6_vsegpercent$viralreadpercent <- NULL
+s6_vsegpercent$cellID <- NULL
+
+s6_vsegpercent_new <- melt(s6_vsegpercent, id.vars="rank")
+s6_vsegpercent_new$sample <- "HBEpC_6hpi"
+
+
+## Sample7 ##
+s7_vseg <- t(s7_vseg)
+s7_vsegpercent <- cbind(s7_vseg, s7_vreadsum[,1], s7_hreadsum)
+colnames(s7_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s7_vsegpercent[, i] <- 100 * s7_vsegpercent[, i] / 
+    (s7_vsegpercent[, "viralreadsum"] + s7_vsegpercent[, "hostreadsum"])
+}
+
+s7_vsegpercent$viralreadpercent <- 100*s7_vsegpercent$viralreadsum/
+  (s7_vsegpercent$viralreadsum + s7_vsegpercent$hostreadsum)
+s7_vsegpercent <- s7_vsegpercent[order(s7_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE),]
+s7_vsegpercent$rank <- seq(1, nrow(s7_vsegpercent), 1)
+s7_vsegpercent$viralreadsum <- NULL
+s7_vsegpercent$hostreadsum <- NULL
+s7_vsegpercent$viralreadpercent <- NULL
+s7_vsegpercent$cellID <- NULL
+
+s7_vsegpercent_new <- melt(s7_vsegpercent, id.vars="rank")
+s7_vsegpercent_new$sample <- "HBEpC_12hpi"
+
+
+## Sample8 ##
+s8_vseg <- t(s8_vseg)
+s8_vsegpercent <- cbind(s8_vseg, s8_vreadsum[,1], s8_hreadsum)
+colnames(s8_vsegpercent) <- c(seg_name, "viralreadsum", "hostreadsum", "cellID")
+
+for(i in 1:8) {
+  s8_vsegpercent[, i] <- 100 * s8_vsegpercent[, i] / 
+    (s8_vsegpercent[, "viralreadsum"] + s8_vsegpercent[, "hostreadsum"])
+}
+
+s8_vsegpercent$viralreadpercent <- 100*s8_vsegpercent$viralreadsum/
+  (s8_vsegpercent$viralreadsum + s8_vsegpercent$hostreadsum)
+s8_vsegpercent <- s8_vsegpercent[order(s8_vsegpercent$viralreadpercent, 
+                                       decreasing = TRUE),]
+s8_vsegpercent$rank <- seq(1, nrow(s8_vsegpercent), 1)
+s8_vsegpercent$viralreadsum <- NULL
+s8_vsegpercent$hostreadsum <- NULL
+s8_vsegpercent$viralreadpercent <- NULL
+s8_vsegpercent$cellID <- NULL
+
+s8_vsegpercent_new <- melt(s8_vsegpercent, id.vars="rank")
+s8_vsegpercent_new$sample <- "HBEpC_24hpi"
+
+
+## merge sample 6,7,8 and plot
+s678_vseg <- rbind(s6_vsegpercent_new, s7_vsegpercent_new, s8_vsegpercent_new)
+s678_vseg$sample <- factor(s678_vseg$sample,
+                           levels=c("HBEpC_6hpi",
+                                    "HBEpC_12hpi",
+                                    "HBEpC_24hpi"))
+
+s678_vseg$sample <- gsub("HBEpC_", "", s678_vseg$sample)
+s678_vseg$sample <- factor(s678_vseg$sample, levels=c("6hpi", "12hpi", "24hpi"))
+ggplot(s678_vseg, aes(rank, value, fill=variable)) + 
+  geom_bar(stat="identity") +
+  facet_grid(.~sample) +
+  labs(list(x="Cells", y="Relative abundance of viral transcripts")) + 
+  theme(plot.title=element_text(size=15, hjust = 0.5), 
+        text=element_text(size=15),
+        legend.title=element_blank(),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_x_continuous(breaks=seq(0, 3000, 1000), limits=c(0, 3700)) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) + 
+  scale_fill_manual(labels=seg_name,
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"))
+
+```
+
+
+
+#### Check the median of the viral read percentage for each viral segment in the library size ####
+```{r warning=FALSE, message=FALSE}
+s6_vsegpercent_median <- as.data.frame(apply(as.matrix(s6_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s7_vsegpercent_median <- as.data.frame(apply(as.matrix(s7_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s8_vsegpercent_median <- as.data.frame(apply(as.matrix(s8_vsegpercent[,1:8]), 
+                                             MARGIN=2, FUN=median))
+s678_vsegpercent_median <- cbind(s6_vsegpercent_median, s7_vsegpercent_median,
+                                 s8_vsegpercent_median)
+colnames(s678_vsegpercent_median) <- c("HBEpC_6hpi", "HBEpC_12hpi", "HBEpC_24hpi")
+rownames(s678_vsegpercent_median) <- seg_name
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+write.csv(s678_vsegpercent_median, file="HBEpC_3timepoints_viral-segment-percentage-in-library_median.csv")
+
+```
+
+
+
+#### Grey out cells with any segment that has lower than 1% of the total viral reads ####
+```{r warning=FALSE, message=FALSE}
+## Sample6 ##
+# Filter segment < 1%
+s6_vseg_vpercent <- as.data.frame(s6_vseg)
+s6_vseg_vpercent$ssum <- rowSums(s6_vseg_vpercent)
+for(i in 1:8){
+  s6_vseg_vpercent[,i] <- 100*s6_vseg_vpercent[,i] / s6_vseg_vpercent[,9]
+}
+s6_vseg_vpercent$ssum <- NULL
+
+s6_vseg_min <- data.frame(min=apply(s6_vseg_vpercent, 1, min))
+s6_vseg_min[is.na(s6_vseg_min)] <- 0
+s6_vseg_min$cellID <- rownames(s6_vseg_min)
+
+s6_vsegpercent$cellID <- rownames(s6_vsegpercent)
+s6_vseg_min_rank_merge <- merge(s6_vseg_min, s6_vsegpercent[,9:10], by.y="cellID")
+s6_vsegpercent$cellID <- NULL
+
+s6_vsegpercent_new <- melt(s6_vsegpercent, id.vars="rank")
+s6_vsegpercent_new <- merge(s6_vsegpercent_new, s6_vseg_min_rank_merge, by.y="rank")
+s6_vsegpercent_new_part1 <- s6_vsegpercent_new[s6_vsegpercent_new$min < 1, ]
+s6_vsegpercent_new_part2 <- s6_vsegpercent_new[s6_vsegpercent_new$min >= 1, ]
+
+s6_vsegpercent_new_part1$variable <- NA
+
+s6_vsegpercent_new <- rbind(s6_vsegpercent_new_part1, s6_vsegpercent_new_part2)
+s6_vsegpercent_new$min <- NULL
+s6_vsegpercent_new$sample <- "HBEpC_6hpi"
+s6_vsegpercent_new$variable <- factor(s6_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s6_vseg_fail <-s6_vseg_vpercent
+s6_vseg_fail$cell <- rownames(s6_vseg_fail)
+s6_vseg_fail <- melt(s6_vseg_fail, id.vars="cell")
+colnames(s6_vseg_fail) <- c("cell", "segment", "percentage")
+s6_vseg_fail <- s6_vseg_fail[s6_vseg_fail$percentage < 1, ]
+s6_vseg_fail_freq <- count(s6_vseg_fail$segment)
+s6_vseg_fail_freq$percentage <- 
+  s6_vseg_fail_freq$freq / sum(s6_vseg_fail_freq$freq) * 100
+s6_vseg_fail_freq$sample <- rep("HBEpC 6h", nrow(s6_vseg_fail_freq))
+colnames(s6_vseg_fail_freq)[1] <- "segment"
+
+
+## Sample7 ##
+# Filter segment < 1%
+s7_vseg_vpercent <- as.data.frame(s7_vseg)
+s7_vseg_vpercent$ssum <- rowSums(s7_vseg_vpercent)
+for(i in 1:8){
+  s7_vseg_vpercent[,i] <- 100*s7_vseg_vpercent[,i] / s7_vseg_vpercent[,9]
+}
+s7_vseg_vpercent$ssum <- NULL
+
+s7_vseg_min <- data.frame(min=apply(s7_vseg_vpercent, 1, min))
+s7_vseg_min[is.na(s7_vseg_min)] = 0
+s7_vseg_min$cellID <- rownames(s7_vseg_min)
+
+s7_vsegpercent$cellID <- rownames(s7_vsegpercent)
+s7_vseg_min_rank_merge <- merge(s7_vseg_min, s7_vsegpercent[,9:10])
+s7_vsegpercent$cellID <- NULL
+
+s7_vsegpercent_new <- melt(s7_vsegpercent, id.vars="rank")
+s7_vsegpercent_new <- merge(s7_vsegpercent_new, s7_vseg_min_rank_merge)
+s7_vsegpercent_new_part1 <- s7_vsegpercent_new[s7_vsegpercent_new$min < 1, ]
+s7_vsegpercent_new_part2 <- s7_vsegpercent_new[s7_vsegpercent_new$min >= 1, ]
+
+s7_vsegpercent_new_part1$variable <- NA
+
+s7_vsegpercent_new <- rbind(s7_vsegpercent_new_part1, s7_vsegpercent_new_part2)
+s7_vsegpercent_new$min <- NULL
+s7_vsegpercent_new$sample <- "HBEpC_12hpi"
+s7_vsegpercent_new$variable <- factor(s7_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s7_vseg_fail <-s7_vseg_vpercent
+s7_vseg_fail$cell <- rownames(s7_vseg_fail)
+s7_vseg_fail <- melt(s7_vseg_fail, id.vars="cell")
+colnames(s7_vseg_fail) <- c("cell", "segment", "percentage")
+s7_vseg_fail <- s7_vseg_fail[s7_vseg_fail$percentage < 1, ]
+s7_vseg_fail_freq <- count(s7_vseg_fail$segment)
+s7_vseg_fail_freq$percentage <- 
+  s7_vseg_fail_freq$freq / sum(s7_vseg_fail_freq$freq) * 100
+s7_vseg_fail_freq$sample <- rep("HBEpC 12h", nrow(s7_vseg_fail_freq))
+colnames(s7_vseg_fail_freq)[1] <- "segment"
+
+
+## Sample8 ##
+# Filter segment < 1%
+s8_vseg_vpercent <- as.data.frame(s8_vseg)
+s8_vseg_vpercent$ssum <- rowSums(s8_vseg_vpercent)
+for(i in 1:8){
+  s8_vseg_vpercent[,i] <- 100*s8_vseg_vpercent[,i] / s8_vseg_vpercent[,9]
+}
+s8_vseg_vpercent$ssum <- NULL
+
+s8_vseg_min <- data.frame(min=apply(s8_vseg_vpercent, 1, min))
+s8_vseg_min[is.na(s8_vseg_min)] = 0
+s8_vseg_min$cellID <- rownames(s8_vseg_min)
+
+s8_vsegpercent$cellID <- rownames(s8_vsegpercent)
+s8_vseg_min_rank_merge <- merge(s8_vseg_min, s8_vsegpercent[,9:10])
+s8_vsegpercent$cellID <- NULL
+
+s8_vsegpercent_new <- melt(s8_vsegpercent, id.vars="rank")
+s8_vsegpercent_new <- merge(s8_vsegpercent_new, s8_vseg_min_rank_merge)
+s8_vsegpercent_new_part1 <- s8_vsegpercent_new[s8_vsegpercent_new$min < 1, ]
+s8_vsegpercent_new_part2 <- s8_vsegpercent_new[s8_vsegpercent_new$min >= 1, ]
+
+s8_vsegpercent_new_part1$variable <- NA
+
+s8_vsegpercent_new <- rbind(s8_vsegpercent_new_part1, s8_vsegpercent_new_part2)
+s8_vsegpercent_new$min <- NULL
+s8_vsegpercent_new$sample <- "HBEpC_24hpi"
+s8_vsegpercent_new$variable <- factor(s8_vsegpercent_new$variable,
+                                      levels=c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS"))
+
+# Check the frequency of each segment < 1% in the sample
+s8_vseg_fail <-s8_vseg_vpercent
+s8_vseg_fail$cell <- rownames(s8_vseg_fail)
+s8_vseg_fail <- melt(s8_vseg_fail, id.vars="cell")
+colnames(s8_vseg_fail) <- c("cell", "segment", "percentage")
+s8_vseg_fail <- s8_vseg_fail[s8_vseg_fail$percentage < 1, ]
+s8_vseg_fail_freq <- count(s8_vseg_fail$segment)
+s8_vseg_fail_freq$percentage <- 
+  s8_vseg_fail_freq$freq / sum(s8_vseg_fail_freq$freq) * 100
+s8_vseg_fail_freq$sample <- rep("HBEpC 24h", nrow(s8_vseg_fail_freq))
+colnames(s8_vseg_fail_freq)[1] <- "segment"
+
+
+## Plot sample 6,7,8 together in the greyout plot
+s678_vsegpercent_new <- rbind(s6_vsegpercent_new, s7_vsegpercent_new, s8_vsegpercent_new)
+s678_vsegpercent_new$sample <- factor(s678_vsegpercent_new$sample,
+                                      levels=c("HBEpC_6hpi",
+                                               "HBEpC_12hpi",
+                                               "HBEpC_24hpi"))
+
+s678_vsegpercent_new_v2 <- s678_vsegpercent_new
+s678_vsegpercent_new_v2$sample <- gsub("HBEpC_", "", s678_vsegpercent_new$sample)
+s678_vsegpercent_new_v2$sample <- factor(s678_vsegpercent_new_v2$sample,
+                                         levels=c("6hpi", "12hpi", "24hpi"))
+
+ggplot(s678_vsegpercent_new_v2, aes(rank, value, fill=variable)) + 
+  facet_grid(. ~ sample) +
+  geom_bar(stat="identity") +
+  labs(list(x="Cells", y="Relative abundance of viral transcripts")) + 
+  theme(text=element_text(size=15),
+        legend.position="bottom", 
+        legend.justification="center",
+        legend.direction="horizontal",
+        legend.title=element_blank(),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_x_continuous(breaks=seq(0, 3000, 1000), limits=c(0, 3700)) +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  scale_fill_manual(labels=c(seg_name, "Any segment with less than 1% viral reads"),
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"),
+                    na.value="gray30")
+
+
+## Check the percentage of gray-out cells in the top 5% cells
+s6_vseg_min_rank_merge_sort <- 
+  s6_vseg_min_rank_merge[order(s6_vseg_min_rank_merge$rank),]
+rownames(s6_vseg_min_rank_merge_sort) <- s6_vseg_min_rank_merge_sort$rank
+100* sum(s6_vseg_min_rank_merge_sort[1:round(nrow(s6_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s6_vseg_min_rank_merge_sort)*0.05)
+
+s7_vseg_min_rank_merge_sort <- 
+  s7_vseg_min_rank_merge[order(s7_vseg_min_rank_merge$rank),]
+rownames(s7_vseg_min_rank_merge_sort) <- s7_vseg_min_rank_merge_sort$rank
+100* sum(s7_vseg_min_rank_merge_sort[1:round(nrow(s7_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s7_vseg_min_rank_merge_sort)*0.05)
+
+s8_vseg_min_rank_merge_sort <- 
+  s8_vseg_min_rank_merge[order(s8_vseg_min_rank_merge$rank),]
+rownames(s8_vseg_min_rank_merge_sort) <- s8_vseg_min_rank_merge_sort$rank
+100* sum(s8_vseg_min_rank_merge_sort[1:round(nrow(s8_vseg_min_rank_merge_sort)*0.05), ]$min < 1) / round(nrow(s8_vseg_min_rank_merge_sort)*0.05)
+
+
+## Plot the frequency of segments with < 1% reads among 8 segments in top 5% gray-out cells in sample6, 7, and 8
+# s6
+s6_vseg_fail_top5p <-s6_vseg_vpercent
+s6_vseg_min_rank_merge_top5p_fail <- 
+  s6_vseg_min_rank_merge_sort[s6_vseg_min_rank_merge_sort$min < 1, ]
+s6_vseg_min_rank_merge_top5p_fail <- 
+  s6_vseg_min_rank_merge_top5p_fail[s6_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s6_vseg_vpercent)), ]
+s6_vseg_fail_top5p <- s6_vseg_fail_top5p[s6_vseg_min_rank_merge_top5p_fail$cellID, ]
+s6_vseg_fail_top5p$cell <- rownames(s6_vseg_fail_top5p)
+s6_vseg_fail_top5p <- melt(s6_vseg_fail_top5p, id.vars="cell")
+colnames(s6_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s6_vseg_fail_top5p <- s6_vseg_fail_top5p[s6_vseg_fail_top5p$percentage < 1, ]
+s6_vseg_fail_top5p_freq <- count(s6_vseg_fail_top5p$segment)
+s6_vseg_fail_top5p_freq$percentage <- 
+  s6_vseg_fail_top5p_freq$freq / sum(s6_vseg_fail_top5p_freq$freq) * 100
+s6_vseg_fail_top5p_freq$sample <- rep("HBEpC 6h", nrow(s6_vseg_fail_top5p_freq))
+colnames(s6_vseg_fail_top5p_freq)[1] <- "segment"
+
+# s7
+s7_vseg_fail_top5p <-s7_vseg_vpercent
+s7_vseg_min_rank_merge_top5p_fail <- 
+  s7_vseg_min_rank_merge_sort[s7_vseg_min_rank_merge_sort$min < 1, ]
+s7_vseg_min_rank_merge_top5p_fail <- 
+  s7_vseg_min_rank_merge_top5p_fail[s7_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s7_vseg_vpercent)), ]
+s7_vseg_fail_top5p <- s7_vseg_fail_top5p[s7_vseg_min_rank_merge_top5p_fail$cellID, ]
+s7_vseg_fail_top5p$cell <- rownames(s7_vseg_fail_top5p)
+s7_vseg_fail_top5p <- melt(s7_vseg_fail_top5p, id.vars="cell")
+colnames(s7_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s7_vseg_fail_top5p <- s7_vseg_fail_top5p[s7_vseg_fail_top5p$percentage < 1, ]
+s7_vseg_fail_top5p_freq <- count(s7_vseg_fail_top5p$segment)
+s7_vseg_fail_top5p_freq$percentage <- 
+  s7_vseg_fail_top5p_freq$freq / sum(s7_vseg_fail_top5p_freq$freq) * 100
+s7_vseg_fail_top5p_freq$sample <- rep("HBEpC 12h", nrow(s7_vseg_fail_top5p_freq))
+colnames(s7_vseg_fail_top5p_freq)[1] <- "segment"
+
+# s8
+s8_vseg_fail_top5p <-s8_vseg_vpercent
+s8_vseg_min_rank_merge_top5p_fail <- 
+  s8_vseg_min_rank_merge_sort[s8_vseg_min_rank_merge_sort$min < 1, ]
+s8_vseg_min_rank_merge_top5p_fail <- 
+  s8_vseg_min_rank_merge_top5p_fail[s8_vseg_min_rank_merge_top5p_fail$rank <= 
+                                      round(0.05*nrow(s8_vseg_vpercent)), ]
+s8_vseg_fail_top5p <- s8_vseg_fail_top5p[s8_vseg_min_rank_merge_top5p_fail$cellID, ]
+s8_vseg_fail_top5p$cell <- rownames(s8_vseg_fail_top5p)
+s8_vseg_fail_top5p <- melt(s8_vseg_fail_top5p, id.vars="cell")
+colnames(s8_vseg_fail_top5p) <- c("cell", "segment", "percentage")
+s8_vseg_fail_top5p <- s8_vseg_fail_top5p[s8_vseg_fail_top5p$percentage < 1, ]
+s8_vseg_fail_top5p_freq <- count(s8_vseg_fail_top5p$segment)
+s8_vseg_fail_top5p_freq$percentage <- 
+  s8_vseg_fail_top5p_freq$freq / sum(s8_vseg_fail_top5p_freq$freq) * 100
+s8_vseg_fail_top5p_freq$sample <- rep("HBEpC 24h", nrow(s8_vseg_fail_top5p_freq))
+colnames(s8_vseg_fail_top5p_freq)[1] <- "segment"
+
+s6_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s6_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s6_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s6_vseg_fail_top5p_freq$segment])),
+                                           "sample"="HBEpC 6h")
+s7_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s7_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s7_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s7_vseg_fail_top5p_freq$segment])),
+                                           "sample"="HBEpC 12h")
+s8_vseg_fail_freq_fill_top5p <- data.frame("segment"=seg_name[seg_name %nin% s8_vseg_fail_top5p_freq$segment],
+                                           "freq"=rep(0, length(seg_name[seg_name %nin% s8_vseg_fail_top5p_freq$segment])),
+                                           "percentage"=rep(0, length(seg_name[seg_name %nin% s8_vseg_fail_top5p_freq$segment])),
+                                           "sample"="HBEpC 24h")
+s678_vseg_fail_freq_top5p <- rbind(s6_vseg_fail_top5p_freq, s7_vseg_fail_top5p_freq, 
+                                   s8_vseg_fail_top5p_freq,
+                                   s6_vseg_fail_freq_fill_top5p, 
+                                   s7_vseg_fail_freq_fill_top5p,
+                                   s8_vseg_fail_freq_fill_top5p)
+s678_vseg_fail_freq_top5p$sample <- factor(s678_vseg_fail_freq_top5p$sample,
+                                           levels=c("HBEpC 6h", "HBEpC 12h", "HBEpC 24h"))
+
+s678_vseg_fail_freq_top5p_v2 <-s678_vseg_fail_freq_top5p
+s678_vseg_fail_freq_top5p_v2$sample <- gsub("HBEpC ", "", s678_vseg_fail_freq_top5p_v2$sample)
+s678_vseg_fail_freq_top5p_v2$sample <- gsub("h", "hpi", s678_vseg_fail_freq_top5p_v2$sample)
+s678_vseg_fail_freq_top5p_v2$sample <- factor(s678_vseg_fail_freq_top5p_v2$sample,
+                                              levels=c("6hpi", "12hpi", "24hpi"))
+
+g <- ggplot(s678_vseg_fail_freq_top5p_v2, aes(x=sample, y=percentage, fill=segment))
+g + geom_bar(stat="identity", width=0.8) +
+  labs(x="Time point", y="Percentage of cells", fill="Segment") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90")) +
+  scale_fill_manual(labels=seg_name,
+                    values=c("palevioletred2", "slateblue", "gold", "cadetblue3",
+                             "olivedrab3", "orange", "darkorchid", "cadetblue4"))
+
+```
+
+
+
+#### Plot the distribution of each segment in each sample during infection ####
+```{r warning=FALSE, message=FALSE}
+s678_vseg_segname <- s678_vseg
+s678_vseg_segname$variable <- factor(s678_vseg_segname$variable,
+                                     levels=c("PB2", "PB1", "PA", "HA",
+                                              "NP", "NA", "M", "NS"))
+s678_vseg_segname$sample <- gsub("HBEpC_", "", s678_vseg_segname$sample)
+s678_vseg_segname$sample <- factor(s678_vseg_segname$sample,
+                                   levels=c("6hpi", "12hpi", "24hpi"))
+
+p <- ggplot(s678_vseg_segname, aes(sample, value))
+p + geom_jitter(aes(sample, value, colour=sample), size=0.5, alpha=0.5) +
+  geom_boxplot(outlier.size=0.5, lwd=0.6, width=0.6, show.legend=FALSE, fill=NA) +
+  facet_wrap(~variable)+
+  labs(x="Time point", y="Relative abundance of viral transcripts derived from each segment", colour="Sample") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  scale_y_continuous(breaks=seq(0, 50, 5), limits=c(0, 50)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d"))
+
+
+## Test if the increase in each viral segment over time is significant
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "PB2", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "PB1", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "PA", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "HA", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "NP", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "NA", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "M", ]) 
+kruskal.test(value ~ sample, s678_vseg_segname[s678_vseg_segname$variable == "NS", ]) 
+
+# PB2
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB2" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB2" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB2" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# PB1
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB1" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB1" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PB1" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# PA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PA" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PA" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "PA" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# HA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "HA" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "HA" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "HA" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NP
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NP" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NP" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NP" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NA
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NA" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NA" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NA" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# M
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "M" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "M" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "M" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less") 
+
+# NS
+# 6hpi vs 12hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NS" & 
+                                s678_vseg_segname$sample != "24hpi", ], 
+            alternative="less") 
+# 6hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NS" & 
+                                s678_vseg_segname$sample != "12hpi", ],
+            alternative="less") 
+# 12hpi vs 24hpi
+wilcox.test(value ~ sample, 
+            s678_vseg_segname[s678_vseg_segname$variable == "NS" & 
+                                s678_vseg_segname$sample != "6hpi", ],
+            alternative="less")
+
+```
+
+
+
+#### Plot the distribution of the percentage of each segment among 8 viral segments (in the viral mRNA pool) ####
+```{r warning=FALSE, message=FALSE}
+s6_vseg_vpercent_melt <- melt(s6_vseg_vpercent)
+s7_vseg_vpercent_melt <- melt(s7_vseg_vpercent)
+s8_vseg_vpercent_melt <- melt(s8_vseg_vpercent)
+s6_vseg_vpercent_melt$sample <- "6hpi"
+s7_vseg_vpercent_melt$sample <- "12hpi"
+s8_vseg_vpercent_melt$sample <- "24hpi"
+s678_vseg_vpercent_melt <- rbind(s6_vseg_vpercent_melt, 
+                                 s7_vseg_vpercent_melt,
+                                 s8_vseg_vpercent_melt)
+s678_vseg_vpercent_melt$sample <- factor(s678_vseg_vpercent_melt$sample,
+                                         levels=c("6hpi", "12hpi", "24hpi"))
+s678_vseg_vpercent_melt$variable <- factor(s678_vseg_vpercent_melt$variable,
+                                           levels=c("PB2", "PB1", "PA", "HA",
+                                                    "NP", "NA", "M", "NS"))
+
+p <- ggplot(s678_vseg_vpercent_melt, aes(sample, value))
+p + geom_jitter(aes(sample, value, colour=sample), size=0.5, alpha=0.5) +
+  geom_boxplot(outlier.size=0.5, lwd=0.6, width=0.6, show.legend=FALSE, fill=NA) +
+  facet_wrap(~variable)+
+  labs(x="Time point", y="Relative abundance of viral transcripts \n derived from each segment", colour="Sample") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  scale_y_continuous(breaks=seq(0, 80, 10)) +
+  scale_color_manual(values=c("#b1df01", "olivedrab4", "#466b5d"))
+
+```
+
+
+
+#### Extract the median of viral read percentage in the viral mRNA pool for each segment ####
+```{r warning=FALSE, message=FALSE}
+s6_vseg_vpercent_median <- as.data.frame(apply(s6_vseg_vpercent, 2, median))
+colnames(s6_vseg_vpercent_median) <- "s6"
+
+s7_vseg_vpercent_median <- as.data.frame(apply(s7_vseg_vpercent, 2, median))
+colnames(s7_vseg_vpercent_median) <- "s7"
+
+s8_vseg_vpercent_median <- as.data.frame(apply(s8_vseg_vpercent, 2, median))
+colnames(s8_vseg_vpercent_median) <- "s8"
+
+s678_vseg_vpercent_median <- cbind(s6_vseg_vpercent_median, s7_vseg_vpercent_median,
+                                   s8_vseg_vpercent_median)
+s678_vseg_vpercent_median_round <- round(s678_vseg_vpercent_median, digits=1)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+write.csv(s678_vseg_vpercent_median_round, 
+          file="HBEpC_3timepoints_viral-segment-percentage-in-vmRNA-pool_median.csv")
+
+```
+
+
+
+#### Check the number of cells with how many segments having extremely low expression ####
+```{r warning=FALSE, message=FALSE}
+s6_top5p_fail_vseg_vpercent <- s6_vseg_vpercent[s6_vseg_min_rank_merge_top5p_fail$cellID, ]
+s7_top5p_fail_vseg_vpercent <- s7_vseg_vpercent[s7_vseg_min_rank_merge_top5p_fail$cellID, ]
+s8_top5p_fail_vseg_vpercent <- s8_vseg_vpercent[s8_vseg_min_rank_merge_top5p_fail$cellID, ]
+
+s6_top5p_fail_segnum <- as.data.frame(rowSums(s6_top5p_fail_vseg_vpercent < 1))
+colnames(s6_top5p_fail_segnum) <- "number_mis_seg"
+s7_top5p_fail_segnum <- as.data.frame(rowSums(s7_top5p_fail_vseg_vpercent < 1))
+colnames(s7_top5p_fail_segnum) <- "number_mis_seg"
+s8_top5p_fail_segnum <- as.data.frame(rowSums(s8_top5p_fail_vseg_vpercent < 1))
+colnames(s8_top5p_fail_segnum) <- "number_mis_seg"
+
+s6_top5p_fail_segnum$number_mis_seg <- factor(s6_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+s7_top5p_fail_segnum$number_mis_seg <- factor(s7_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+s8_top5p_fail_segnum$number_mis_seg <- factor(s8_top5p_fail_segnum$number_mis_seg, levels=c("1", "2"))
+
+s6_top5p_fail_segnum_tb <- as.data.frame(table(s6_top5p_fail_segnum))
+s7_top5p_fail_segnum_tb <- as.data.frame(table(s7_top5p_fail_segnum))
+s8_top5p_fail_segnum_tb <- as.data.frame(table(s8_top5p_fail_segnum))
+
+s6_top5p_fail_segnum_tb$Freq <- 100 * s6_top5p_fail_segnum_tb$Freq / sum(s6_top5p_fail_segnum_tb$Freq)
+s7_top5p_fail_segnum_tb$Freq <- 100 * s7_top5p_fail_segnum_tb$Freq / sum(s7_top5p_fail_segnum_tb$Freq)
+s8_top5p_fail_segnum_tb$Freq <- 100 * s8_top5p_fail_segnum_tb$Freq / sum(s8_top5p_fail_segnum_tb$Freq)
+
+colnames(s6_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+colnames(s7_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+colnames(s8_top5p_fail_segnum_tb)[1] <- "Number_missing_seg"
+
+s6_top5p_fail_segnum_tb$sample <- rep("6hpi", nrow(s6_top5p_fail_segnum_tb))
+s7_top5p_fail_segnum_tb$sample <- rep("12hpi", nrow(s7_top5p_fail_segnum_tb))
+s8_top5p_fail_segnum_tb$sample <- rep("24hpi", nrow(s8_top5p_fail_segnum_tb))
+
+s678_top5p_fail_segnum_tb <- rbind(s6_top5p_fail_segnum_tb, s7_top5p_fail_segnum_tb,
+                                   s8_top5p_fail_segnum_tb)
+s678_top5p_fail_segnum_tb$sample <- factor(s678_top5p_fail_segnum_tb$sample,
+                                           levels=c("6hpi", "12hpi", "24hpi"))
+
+ggplot(s678_top5p_fail_segnum_tb, aes(x=sample, y=Freq, fill=Number_missing_seg)) + 
+  geom_histogram(stat="identity") +
+  labs(x="Time point", 
+       y="Percentage of top 5% cells with at least \n one extremely lowly expressed viral segment ", 
+       fill="") +
+  theme(panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        text=element_text(size=15),
+        legend.key.size=unit(1, "cm")) +
+  scale_fill_manual(values=c("slateblue", "gold"))
+
+```
+
+

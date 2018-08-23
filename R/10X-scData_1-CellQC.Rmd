@@ -1,0 +1,2038 @@
+---
+title: "10X-scData_1-CellQC"
+author: "Chang Wang"
+date: "7/26/2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Data filtering ######
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(ggplot2)
+```
+
+
+
+###### A549 cells ######
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+
+```
+
+#### Read gene expression matrix data ####
+```{r warning=FALSE, message=FALSE}
+s1.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_Mock/Cellranger_v210_outs/hg19_PR8segs/")
+s1 <- as.data.frame(as.matrix(s1.data))
+s1_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/A549_Mock/A549_Mock_S1_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE)
+s1_virus <- s1_virus[order(s1_virus$seg), ]
+rownames(s1_virus) <- s1_virus$seg
+rownames(s1_virus)
+rownames(s1_virus) <- c("PB2", "PB1", "PA", "HA", "NA", "M")
+s1_virus$seg <- NULL
+s1_virus[is.na(s1_virus)] <- 0 
+s1_virus_t <- as.data.frame(t(s1_virus))
+s1_virus_t$NP <- rep(0, nrow(s1_virus_t))
+s1_virus_t$NS <- rep(0, nrow(s1_virus_t))
+s1_virus_t <- s1_virus_t[, c(1:4, 7, 5:6, 8)]
+s1_virus <- as.data.frame(t(s1_virus_t))
+
+s2.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_6h/Cellranger_v210_outs/hg19_PR8segs/")
+s2 <- as.data.frame(as.matrix(s2.data))
+s2_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/A549_6h/A549_6h_S2_viral_all_UMI_counts_summary.txt", 
+                       sep=",", header=TRUE, row.names=1)
+rownames(s2_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+
+s3.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_12h/Cellranger_v210_outs/hg19_PR8segs/")
+s3 <- as.data.frame(as.matrix(s3.data))
+s3_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/A549_12h/A549_12h_S3_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE, row.names=1)
+rownames(s3_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+
+s4.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_24h/Cellranger_v210_outs/hg19_PR8segs/")
+s4 <- as.data.frame(as.matrix(s4.data))
+s4_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/A549_24h/A549_24h_S4_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE, row.names=1)
+rownames(s4_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+
+```
+
+
+
+#### Replace viral UMI counts in the output from pipeline ####
+```{r warning=FALSE, message=FALSE}
+## S1
+s1_virus <- s1_virus[, colnames(s1)]
+s1 <- rbind(s1[1:(nrow(s1)-8), ], s1_virus)
+
+
+## S2
+s2_virus <- s2_virus[, colnames(s2)]
+s2 <- rbind(s2[1:(nrow(s2)-8), ], s2_virus)
+
+
+## S3
+s3_virus <- s3_virus[, colnames(s3)]
+s3 <- rbind(s3[1:(nrow(s3)-8), ], s3_virus)
+
+
+## S4
+s4_virus <- s4_virus[, colnames(s4)]
+s4 <- rbind(s4[1:(nrow(s4)-8), ], s4_virus)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+## Export raw data
+write.table(s1, file="../../../data_submission/processed_data/sc_A549_Mock.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s2, file="../../../data_submission/processed_data/sc_A549_6hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s3, file="../../../data_submission/processed_data/sc_A549_12hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s4, file="../../../data_submission/processed_data/sc_A549_24hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+
+```
+
+
+
+#### Prepare metrics file ####
+```{r warning=FALSE, message=FALSE}
+## Sample 1 (A549 Mock) ##
+# load metrics csv file
+s1_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_Mock/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s1_metrics <- s1_metrics[colnames(s1), ]
+# remove rows that could not find matches in gene expression matrix
+s1_metrics <- na.omit(s1_metrics)
+
+# log10 transformation of # of reads per cell
+s1_metrics$log10reads <- log10(s1_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s1_metrics$map_percentage <- s1_metrics$mapped_reads/s1_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s1_metrics$genes <- colSums(s1 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s1_metrics$UMI <- colSums(s1)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s1_metrics$log10UMI <- log10(s1_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s1_mito.genes <- grep(pattern="^MT-", x=rownames(s1), value=TRUE)
+s1_percent.mito <- Matrix::colSums(s1[s1_mito.genes, ]) / Matrix::colSums(s1)
+s1_metrics$percentage.mito <- s1_percent.mito
+
+
+## Sample 2 (A549 6hpi) ##
+# load metrics csv file
+s2_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_6h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s2_metrics <- s2_metrics[colnames(s2), ]
+# remove rows that could not find matches in gene expression matrix
+s2_metrics <- na.omit(s2_metrics)
+
+# log10 transformation of # of reads per cell
+s2_metrics$log10reads <- log10(s2_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s2_metrics$map_percentage <- s2_metrics$mapped_reads/s2_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s2_metrics$genes <- colSums(s2 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s2_metrics$UMI <- colSums(s2)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s2_metrics$log10UMI <- log10(s2_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s2_mito.genes <- grep(pattern="^MT-", x=rownames(s2), value=TRUE)
+s2_percent.mito <- Matrix::colSums(s2[s2_mito.genes, ]) / Matrix::colSums(s2)
+s2_metrics$percentage.mito <- s2_percent.mito
+
+
+## Sample 3 (A549 12hpi) ##
+# load metrics csv file
+s3_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_12h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s3_metrics <- s3_metrics[colnames(s3), ]
+# remove rows that could not find matches in gene expression matrix
+s3_metrics <- na.omit(s3_metrics)
+
+# log10 transformation of # of reads per cell
+s3_metrics$log10reads <- log10(s3_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s3_metrics$map_percentage <- s3_metrics$mapped_reads/s3_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s3_metrics$genes <- colSums(s3 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s3_metrics$UMI <- colSums(s3)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s3_metrics$log10UMI <- log10(s3_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s3_mito.genes <- grep(pattern="^MT-", x=rownames(s3), value=TRUE)
+s3_percent.mito <- Matrix::colSums(s3[s3_mito.genes, ]) / Matrix::colSums(s3)
+s3_metrics$percentage.mito <- s3_percent.mito
+
+
+## Sample 4 (A549 24hpi) ##
+# load metrics csv file
+s4_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/A549_24h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s4_metrics <- s4_metrics[colnames(s4), ]
+# remove rows that could not find matches in gene expression matrix
+s4_metrics <- na.omit(s4_metrics)
+
+# log10 transformation of # of reads per cell
+s4_metrics$log10reads <- log10(s4_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s4_metrics$map_percentage <- s4_metrics$mapped_reads/s4_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s4_metrics$genes <- colSums(s4 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s4_metrics$UMI <- colSums(s4)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s4_metrics$log10UMI <- log10(s4_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s4_mito.genes <- grep(pattern="^MT-", x=rownames(s4), value=TRUE)
+s4_percent.mito <- Matrix::colSums(s4[s4_mito.genes, ]) / Matrix::colSums(s4)
+s4_metrics$percentage.mito <- s4_percent.mito
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# export the metrics to a csv file and keep a record
+write.csv(s1_metrics, file="CellQC_metrics_S1.csv")
+write.csv(s2_metrics, file="CellQC_metrics_S2.csv")
+write.csv(s3_metrics, file="CellQC_metrics_S3.csv")
+write.csv(s4_metrics, file="CellQC_metrics_S4.csv")
+
+```
+
+
+
+#### Merge all the metrics data into one metrics ####
+```{r warning=FALSE, message=FALSE}
+s1_metrics$cid <- rownames(s1_metrics)
+s1_metrics$sample <- rep("Mock", nrow(s1_metrics))
+s1_metrics$pseudo_id <- seq(1, nrow(s1_metrics))
+
+s2_metrics$cid <- rownames(s2_metrics)
+s2_metrics$sample <- rep("6hpi", nrow(s2_metrics))
+s2_metrics$pseudo_id <- seq(1, nrow(s2_metrics))
+
+s3_metrics$cid <- rownames(s3_metrics)
+s3_metrics$sample <- rep("12hpi", nrow(s3_metrics))
+s3_metrics$pseudo_id <- seq(1, nrow(s3_metrics))
+
+s4_metrics$cid <- rownames(s4_metrics)
+s4_metrics$sample <- rep("24hpi", nrow(s4_metrics))
+s4_metrics$pseudo_id <- seq(1, nrow(s4_metrics))
+
+metrics <- rbind(s1_metrics, s2_metrics, s3_metrics, s4_metrics)
+metrics$sample <- factor(metrics$sample, 
+                         levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+```
+
+
+
+#### Calculate the criteria for data filtering (for cells) ####
+```{r warning=FALSE, message=FALSE}
+## The number of detected genes per cell
+# check the number of detected genes per cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+# Density Plot
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000))
+
+# Density plot add vertical lines (threshold setted)
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000)) +
+  geom_vline(xintercept=c(2000), size=1)
+
+gene_low_threshold <- 2000 # change this value according to the plot for different sample groups
+
+# Check the # of cells that will be filtered out
+sum(s1_metrics$genes < gene_low_threshold) 
+sum(s2_metrics$genes < gene_low_threshold) 
+sum(s3_metrics$genes < gene_low_threshold) 
+sum(s4_metrics$genes < gene_low_threshold) 
+
+
+## The alignment rate
+# check the alignment rate for each cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.6, 1, 0.05))
+
+# Density Plot
+ggplot(metrics, aes(x=map_percentage, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30))
+
+# set the range for the alignment rate (mean+/-3*sd) for each sample
+align_low_threshold_s1 <- mean(s1_metrics$map_percentage) - 3*sd(s1_metrics$map_percentage)
+align_high_threshold_s1 <- mean(s1_metrics$map_percentage) + 3*sd(s1_metrics$map_percentage)
+align_low_threshold_s2 <- mean(s2_metrics$map_percentage) - 3*sd(s2_metrics$map_percentage)
+align_high_threshold_s2 <- mean(s2_metrics$map_percentage) + 3*sd(s2_metrics$map_percentage)
+align_low_threshold_s3 <- mean(s3_metrics$map_percentage) - 3*sd(s3_metrics$map_percentage)
+align_high_threshold_s3 <- mean(s3_metrics$map_percentage) + 3*sd(s3_metrics$map_percentage)
+align_low_threshold_s4 <- mean(s4_metrics$map_percentage) - 3*sd(s4_metrics$map_percentage)
+align_high_threshold_s4 <- mean(s4_metrics$map_percentage) + 3*sd(s4_metrics$map_percentage)
+
+align_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                              levels=c("Mock", "6h", "12h", "24h")),
+                              "low"=c(align_low_threshold_s1, align_low_threshold_s2,
+                                      align_low_threshold_s3, align_low_threshold_s4),
+                              "high"=c(align_high_threshold_s1, align_high_threshold_s2,
+                                       align_high_threshold_s3, align_high_threshold_s4))
+
+ggplot(s1_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s1, align_high_threshold_s1), size=1)
+
+ggplot(s2_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s2, align_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s3, align_high_threshold_s3), size=1)
+
+ggplot(s4_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s4, align_high_threshold_s4), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s1_metrics$map_percentage <= align_low_threshold_s1) + sum(s1_metrics$map_percentage >= align_high_threshold_s1) 
+sum(s2_metrics$map_percentage <= align_low_threshold_s2) + sum(s2_metrics$map_percentage >= align_high_threshold_s2) 
+sum(s3_metrics$map_percentage <= align_low_threshold_s3) + sum(s3_metrics$map_percentage >= align_high_threshold_s3) 
+sum(s4_metrics$map_percentage <= align_low_threshold_s4) + sum(s4_metrics$map_percentage >= align_high_threshold_s4) 
+
+
+## The total number of reads (log10 transformed)
+# check the total number of reads 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# Density Plot
+ggplot(metrics, aes(x=log10reads, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# set the range for the number of reads (mean+/-3*sd)
+reads_low_threshold_s1 <- mean(log10(s1_metrics$reads)) - 3*sd(log10(s1_metrics$reads))
+reads_high_threshold_s1 <- mean(log10(s1_metrics$reads)) + 3*sd(log10(s1_metrics$reads))
+reads_low_threshold_s2 <- mean(log10(s2_metrics$reads)) - 3*sd(log10(s2_metrics$reads))
+reads_high_threshold_s2 <- mean(log10(s2_metrics$reads)) + 3*sd(log10(s2_metrics$reads))
+reads_low_threshold_s3 <- mean(log10(s3_metrics$reads)) - 3*sd(log10(s3_metrics$reads))
+reads_high_threshold_s3 <- mean(log10(s3_metrics$reads)) + 3*sd(log10(s3_metrics$reads))
+reads_low_threshold_s4 <- mean(log10(s4_metrics$reads)) - 3*sd(log10(s4_metrics$reads))
+reads_high_threshold_s4 <- mean(log10(s4_metrics$reads)) + 3*sd(log10(s4_metrics$reads))
+
+read_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                             levels=c("Mock", "6h", "12h", "24h")),
+                             "low"=c(reads_low_threshold_s1, reads_low_threshold_s2,
+                                     reads_low_threshold_s3, reads_low_threshold_s4),
+                             "high"=c(reads_high_threshold_s1, reads_high_threshold_s2,
+                                      reads_high_threshold_s3, reads_high_threshold_s4))
+
+ggplot(s1_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s1, reads_high_threshold_s1), size=1)
+
+ggplot(s2_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s2, reads_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s3, reads_high_threshold_s3), size=1)
+
+ggplot(s4_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s4, reads_high_threshold_s4), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s1_metrics$log10reads <= reads_low_threshold_s1) + sum(s1_metrics$log10reads >= reads_high_threshold_s1) 
+sum(s2_metrics$log10reads <= reads_low_threshold_s2) + sum(s2_metrics$log10reads >= reads_high_threshold_s2) 
+sum(s3_metrics$log10reads <= reads_low_threshold_s3) + sum(s3_metrics$log10reads >= reads_high_threshold_s3) 
+sum(s4_metrics$log10reads <= reads_low_threshold_s4) + sum(s4_metrics$log10reads >= reads_high_threshold_s4) 
+
+
+## The total number of UMI (log10 transformed)
+# check the total number of UMI 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# Density Plot
+ggplot(metrics, aes(x=log10UMI, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# set the range for the number of UMI (mean+/-3*sd)
+log10UMI_low_threshold_s1 <- mean(s1_metrics$log10UMI) - 3*sd(s1_metrics$log10UMI)
+log10UMI_high_threshold_s1 <- mean(s1_metrics$log10UMI) + 3*sd(s1_metrics$log10UMI)
+log10UMI_low_threshold_s2 <- mean(s2_metrics$log10UMI) - 3*sd(s2_metrics$log10UMI)
+log10UMI_high_threshold_s2 <- mean(s2_metrics$log10UMI) + 3*sd(s2_metrics$log10UMI)
+log10UMI_low_threshold_s3 <- mean(s3_metrics$log10UMI) - 3*sd(s3_metrics$log10UMI)
+log10UMI_high_threshold_s3 <- mean(s3_metrics$log10UMI) + 3*sd(s3_metrics$log10UMI)
+log10UMI_low_threshold_s4 <- mean(s4_metrics$log10UMI) - 3*sd(s4_metrics$log10UMI)
+log10UMI_high_threshold_s4 <- mean(s4_metrics$log10UMI) + 3*sd(s4_metrics$log10UMI)
+
+UMI_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                            levels=c("Mock", "6h", "12h", "24h")),
+                            "low"=c(log10UMI_low_threshold_s1, log10UMI_low_threshold_s2,
+                                    log10UMI_low_threshold_s3, log10UMI_low_threshold_s4),
+                            "high"=c(log10UMI_high_threshold_s1, log10UMI_high_threshold_s2,
+                                     log10UMI_high_threshold_s3, log10UMI_high_threshold_s4))
+
+ggplot(s1_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s1, log10UMI_high_threshold_s1), size=1)
+
+ggplot(s2_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s2, log10UMI_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s3, log10UMI_high_threshold_s3), size=1)
+
+ggplot(s4_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s4, log10UMI_high_threshold_s4), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s1_metrics$log10UMI <= log10UMI_low_threshold_s1) + sum(s1_metrics$log10UMI >= log10UMI_high_threshold_s1) 
+sum(s2_metrics$log10UMI <= log10UMI_low_threshold_s2) + sum(s2_metrics$log10UMI >= log10UMI_high_threshold_s2) 
+sum(s3_metrics$log10UMI <= log10UMI_low_threshold_s3) + sum(s3_metrics$log10UMI >= log10UMI_high_threshold_s3) 
+sum(s4_metrics$log10UMI <= log10UMI_low_threshold_s4) + sum(s4_metrics$log10UMI >= log10UMI_high_threshold_s4) 
+
+
+## The percentage of reads mapped to the mitochondrial genes
+# Box plot
+ggplot(metrics, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+# Density Plot
+ggplot(metrics, aes(x=percentage.mito, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0, 0.65, 0.05))
+
+# set the range for the percentage of mitochondrial genes (mean+/-3*sd)
+mito.genes_low_threshold_s1 <- mean(s1_metrics$percentage.mito) - 3*sd(s1_metrics$percentage.mito)
+mito.genes_high_threshold_s1 <- mean(s1_metrics$percentage.mito) + 3*sd(s1_metrics$percentage.mito)
+mito.genes_low_threshold_s2 <- mean(s2_metrics$percentage.mito) - 3*sd(s2_metrics$percentage.mito)
+mito.genes_high_threshold_s2 <- mean(s2_metrics$percentage.mito) + 3*sd(s2_metrics$percentage.mito)
+mito.genes_low_threshold_s3 <- mean(s3_metrics$percentage.mito) - 3*sd(s3_metrics$percentage.mito)
+mito.genes_high_threshold_s3 <- mean(s3_metrics$percentage.mito) + 3*sd(s3_metrics$percentage.mito)
+mito.genes_low_threshold_s4 <- mean(s4_metrics$percentage.mito) - 3*sd(s4_metrics$percentage.mito)
+mito.genes_high_threshold_s4 <- mean(s4_metrics$percentage.mito) + 3*sd(s4_metrics$percentage.mito)
+
+ggplot(s1_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s1, mito.genes_high_threshold_s1), size=1)
+
+ggplot(s2_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s2, mito.genes_high_threshold_s2), size=1)
+
+ggplot(s3_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s3, mito.genes_high_threshold_s3), size=1)
+
+ggplot(s4_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s4, mito.genes_high_threshold_s4), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s1_metrics$percentage.mito <= mito.genes_low_threshold_s1) + sum(s1_metrics$percentage.mito >= mito.genes_high_threshold_s1) 
+sum(s2_metrics$percentage.mito <= mito.genes_low_threshold_s2) + sum(s2_metrics$percentage.mito >= mito.genes_high_threshold_s2) 
+sum(s3_metrics$percentage.mito <= mito.genes_low_threshold_s3) + sum(s3_metrics$percentage.mito >= mito.genes_high_threshold_s3) 
+sum(s4_metrics$percentage.mito <= mito.genes_low_threshold_s4) + sum(s4_metrics$percentage.mito >= mito.genes_high_threshold_s4) 
+
+```
+
+
+
+#### Check the distribution of total, viral, and host UMI ####
+```{r warning=FALSE, message=FALSE}
+s1_host <- s1[1:(nrow(s1)-8), ]
+s2_host <- s2[1:(nrow(s2)-8), ]
+s3_host <- s3[1:(nrow(s3)-8), ]
+s4_host <- s4[1:(nrow(s4)-8), ]
+
+s1_host_sum <- as.data.frame(colSums(s1_host))
+s2_host_sum <- as.data.frame(colSums(s2_host))
+s3_host_sum <- as.data.frame(colSums(s3_host))
+s4_host_sum <- as.data.frame(colSums(s4_host))
+
+s1_virus_sum <- as.data.frame(colSums(s1_virus))
+s2_virus_sum <- as.data.frame(colSums(s2_virus))
+s3_virus_sum <- as.data.frame(colSums(s3_virus))
+s4_virus_sum <- as.data.frame(colSums(s4_virus))
+
+s1_host_virus_sum <- cbind(s1_host_sum, s1_virus_sum)
+s2_host_virus_sum <- cbind(s2_host_sum, s2_virus_sum)
+s3_host_virus_sum <- cbind(s3_host_sum, s3_virus_sum)
+s4_host_virus_sum <- cbind(s4_host_sum, s4_virus_sum)
+
+colnames(s1_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s2_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s3_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s4_host_virus_sum) <- c("host_sum", "virus_sum")
+
+s1_host_virus_sum$sample <- rep("Mock", nrow(s1_host_virus_sum))
+s2_host_virus_sum$sample <- rep("6hpi", nrow(s2_host_virus_sum))
+s3_host_virus_sum$sample <- rep("12hpi", nrow(s3_host_virus_sum))
+s4_host_virus_sum$sample <- rep("24hpi", nrow(s4_host_virus_sum))
+
+s1234_host_virus_sum <- rbind(s1_host_virus_sum, s2_host_virus_sum, s3_host_virus_sum, s4_host_virus_sum)
+s1234_host_virus_sum$sample <- factor(s1234_host_virus_sum$sample,
+                                      levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+ggplot(s1234_host_virus_sum, aes(x=host_sum, y=virus_sum), fill=sample) +
+  geom_point() +
+  facet_grid(~sample) +
+  geom_abline(slope=1, intercept=0) +
+  scale_x_continuous(breaks=seq(0, 120000, 30000), limits=c(0, 120000)) +
+  scale_y_continuous(breaks=seq(0, 120000, 30000), limits=c(0, 120000)) +
+  geom_rug(alpha=0.8)
+
+s1_host_sum_median <- median(log10(s1_host_sum$`colSums(s1_host)`))
+s1_host_sum_high <- s1_host_sum_median + 3*sd(log10(s1_host_sum$`colSums(s1_host)`))
+s1_host_sum_low <- s1_host_sum_median - 3*sd(log10(s1_host_sum$`colSums(s1_host)`))
+
+s2_host_sum_median <- median(log10(s2_host_sum$`colSums(s2_host)`))
+s2_host_sum_high <- s2_host_sum_median + 3*sd(log10(s2_host_sum$`colSums(s2_host)`))
+s2_host_sum_low <- s2_host_sum_median - 3*sd(log10(s2_host_sum$`colSums(s2_host)`))
+
+s3_host_sum_median <- median(log10(s3_host_sum$`colSums(s3_host)`))
+s3_host_sum_high <- s3_host_sum_median + 3*sd(log10(s3_host_sum$`colSums(s3_host)`))
+s3_host_sum_low <- s3_host_sum_median - 3*sd(log10(s3_host_sum$`colSums(s3_host)`))
+
+s4_host_sum_median <- median(log10(s4_host_sum$`colSums(s4_host)`))
+s4_host_sum_high <- s4_host_sum_median + 3*sd(log10(s4_host_sum$`colSums(s4_host)`))
+s4_host_sum_low <- s4_host_sum_median - 3*sd(log10(s4_host_sum$`colSums(s4_host)`))
+
+# Check the # of cells that will be filtered out by cellular UMIs
+sum(log10(s1_host_virus_sum$host_sum) <= s1_host_sum_low) + sum(log10(s1_host_virus_sum$host_sum) >= s1_host_sum_high) 
+sum(log10(s2_host_virus_sum$host_sum) <= s2_host_sum_low) + sum(log10(s2_host_virus_sum$host_sum) >= s2_host_sum_high) 
+sum(log10(s3_host_virus_sum$host_sum) <= s3_host_sum_low) + sum(log10(s3_host_virus_sum$host_sum) >= s3_host_sum_high) 
+sum(log10(s4_host_virus_sum$host_sum) <= s4_host_sum_low) + sum(log10(s4_host_virus_sum$host_sum) >= s4_host_sum_high) 
+
+
+## Compare with the cells filtered out by the total UMIs
+s1_totalUMI_fail <- as.character(rownames(s1_metrics[s1_metrics$log10UMI <= log10UMI_low_threshold_s1 | 
+                                                       s1_metrics$log10UMI >= log10UMI_high_threshold_s1, ]))
+s2_totalUMI_fail <- as.character(rownames(s2_metrics[s2_metrics$log10UMI <= log10UMI_low_threshold_s2 | 
+                                                       s2_metrics$log10UMI >= log10UMI_high_threshold_s2, ]))
+s3_totalUMI_fail <- as.character(rownames(s3_metrics[s3_metrics$log10UMI <= log10UMI_low_threshold_s3 | 
+                                                       s3_metrics$log10UMI >= log10UMI_high_threshold_s3, ]))
+s4_totalUMI_fail <- as.character(rownames(s4_metrics[s4_metrics$log10UMI <= log10UMI_low_threshold_s4 | 
+                                                       s4_metrics$log10UMI >= log10UMI_high_threshold_s4, ]))
+
+s1_host_virus_sum$host_sum_log10 <- log10(s1_host_virus_sum$host_sum)
+s2_host_virus_sum$host_sum_log10 <- log10(s2_host_virus_sum$host_sum)
+s3_host_virus_sum$host_sum_log10 <- log10(s3_host_virus_sum$host_sum)
+s4_host_virus_sum$host_sum_log10 <- log10(s4_host_virus_sum$host_sum)
+s1_cellularUMI_fail <- 
+  as.character(rownames(s1_host_virus_sum[s1_host_virus_sum$host_sum_log10 <= s1_host_sum_low | 
+                                            s1_host_virus_sum$host_sum_log10 >= s1_host_sum_high, ]))
+s2_cellularUMI_fail <- 
+  as.character(rownames(s2_host_virus_sum[s2_host_virus_sum$host_sum_log10 <= s2_host_sum_low | 
+                                            s2_host_virus_sum$host_sum_log10 >= s2_host_sum_high, ]))
+s3_cellularUMI_fail <- 
+  as.character(rownames(s3_host_virus_sum[s3_host_virus_sum$host_sum_log10 <= s3_host_sum_low | 
+                                            s3_host_virus_sum$host_sum_log10 >= s3_host_sum_high, ]))
+s4_cellularUMI_fail <- 
+  as.character(rownames(s4_host_virus_sum[s4_host_virus_sum$host_sum_log10 <= s4_host_sum_low | 
+                                            s4_host_virus_sum$host_sum_log10 >= s4_host_sum_high, ]))
+
+length(intersect(s1_totalUMI_fail, s1_cellularUMI_fail)) 
+length(intersect(s2_totalUMI_fail, s2_cellularUMI_fail)) 
+length(intersect(s3_totalUMI_fail, s3_cellularUMI_fail)) 
+length(intersect(s4_totalUMI_fail, s4_cellularUMI_fail)) 
+
+# extract the ID of cells that fail to pass QC according to at least one criterion
+s1_gene_fail <- as.character(rownames(s1_metrics[s1_metrics$genes < 2000, ]))
+s2_gene_fail <- as.character(rownames(s2_metrics[s2_metrics$genes < 2000, ]))
+s3_gene_fail <- as.character(rownames(s3_metrics[s3_metrics$genes < 2000, ]))
+s4_gene_fail <- as.character(rownames(s4_metrics[s4_metrics$genes < 2000, ]))
+
+s1_maprate_fail <- 
+  as.character(rownames(s1_metrics[s1_metrics$map_percentage <= align_low_threshold_s1 | 
+                                     s1_metrics$map_percentage >= align_high_threshold_s1, ]))
+s2_maprate_fail <- 
+  as.character(rownames(s2_metrics[s2_metrics$map_percentage <= align_low_threshold_s2 | 
+                                     s2_metrics$map_percentage >= align_high_threshold_s2, ]))
+s3_maprate_fail <- 
+  as.character(rownames(s3_metrics[s3_metrics$map_percentage <= align_low_threshold_s3 | 
+                                     s3_metrics$map_percentage >= align_high_threshold_s3, ]))
+s4_maprate_fail <- 
+  as.character(rownames(s4_metrics[s4_metrics$map_percentage <= align_low_threshold_s4 | 
+                                     s4_metrics$map_percentage >= align_high_threshold_s4, ]))
+
+s1_read_fail <- 
+  as.character(rownames(s1_metrics[s1_metrics$log10reads <= reads_low_threshold_s1 | 
+                                     s1_metrics$log10reads >= reads_high_threshold_s1, ]))
+s2_read_fail <- 
+  as.character(rownames(s2_metrics[s2_metrics$log10reads <= reads_low_threshold_s2 | 
+                                     s2_metrics$log10reads >= reads_high_threshold_s2, ]))
+s3_read_fail <- 
+  as.character(rownames(s3_metrics[s3_metrics$log10reads <= reads_low_threshold_s3 | 
+                                     s3_metrics$log10reads >= reads_high_threshold_s3, ]))
+s4_read_fail <- 
+  as.character(rownames(s4_metrics[s4_metrics$log10reads <= reads_low_threshold_s4 | 
+                                     s4_metrics$log10reads >= reads_high_threshold_s4, ]))
+
+s1_mito_fail <- 
+  as.character(rownames(s1_metrics[s1_metrics$percentage.mito <= mito.genes_low_threshold_s1 | 
+                                     s1_metrics$log10reads >= mito.genes_high_threshold_s1, ]))
+s2_mito_fail <- 
+  as.character(rownames(s2_metrics[s2_metrics$percentage.mito <= mito.genes_low_threshold_s2 | 
+                                     s2_metrics$log10reads >= mito.genes_high_threshold_s2, ]))
+s3_mito_fail <- 
+  as.character(rownames(s3_metrics[s3_metrics$percentage.mito <= mito.genes_low_threshold_s3 | 
+                                     s3_metrics$log10reads >= mito.genes_high_threshold_s3, ]))
+s4_mito_fail <- 
+  as.character(rownames(s4_metrics[s4_metrics$percentage.mito <= mito.genes_low_threshold_s4 | 
+                                     s4_metrics$log10reads >= mito.genes_high_threshold_s4, ]))
+
+
+s1_fail_4c <- union(union(union(union(s1_gene_fail, s1_maprate_fail), 
+                                s1_read_fail), 
+                          s1_totalUMI_fail),
+                    s1_mito_fail)
+s2_fail_4c <- union(union(union(union(s2_gene_fail, s2_maprate_fail), 
+                                s2_read_fail), 
+                          s2_totalUMI_fail),
+                    s2_mito_fail)
+s3_fail_4c <- union(union(union(union(s3_gene_fail, s3_maprate_fail), 
+                                s3_read_fail), 
+                          s3_totalUMI_fail),
+                    s3_mito_fail)
+s4_fail_4c <- union(union(union(union(s4_gene_fail, s4_maprate_fail), 
+                                s4_read_fail), 
+                          s4_totalUMI_fail),
+                    s4_mito_fail)
+
+# Check if the cells failed cellularUMI criterion are in the union
+sum(s1_cellularUMI_fail %in% s1_fail_4c) 
+sum(s2_cellularUMI_fail %in% s2_fail_4c) 
+sum(s3_cellularUMI_fail %in% s3_fail_4c) 
+sum(s4_cellularUMI_fail %in% s4_fail_4c) 
+# Given the fact that cells failed the cellular UMI criterion are mostly included in the cells failed above four given criteria, we just decided to keep the total UMI criterion for cell QC.
+
+```
+
+
+#### Initial filtering of low quality cells ####
+```{r warning=FALSE, message=FALSE}
+## Filtering based on # of genes, the alignment rate, # of reads, # of UMI, and percentage of mito genes
+## Sample 1
+dim(s1) 
+
+s1 <- s1[, rownames(s1_metrics[s1_metrics$genes >= gene_low_threshold &
+                                 s1_metrics$map_percentage > align_low_threshold_s1 & 
+                                 s1_metrics$map_percentage < align_high_threshold_s1 &
+                                 s1_metrics$log10reads > reads_low_threshold_s1 &
+                                 s1_metrics$log10reads < reads_high_threshold_s1 &
+                                 s1_metrics$log10UMI > log10UMI_low_threshold_s1 &
+                                 s1_metrics$log10UMI < log10UMI_high_threshold_s1 &
+                                 s1_metrics$percentage.mito > mito.genes_low_threshold_s1 &
+                                 s1_metrics$percentage.mito < mito.genes_high_threshold_s1, ])]
+dim(s1) 
+
+# Further check to exclude any cells with any viral reads, although they may only have 1 viral read.
+s1_virus_after_filter1 <- s1[(nrow(s1)-7):nrow(s1), ]
+s1_virus_after_filter1_sum <- as.data.frame(colSums(s1_virus_after_filter1))
+s1_virus_after_filter1_sum$cell <- rownames(s1_virus_after_filter1_sum)
+s1_virus_cellID <- as.character(s1_virus_after_filter1_sum[s1_virus_after_filter1_sum$`colSums(s1_virus_after_filter1)` != 0, "cell"])
+s1 <- s1[, !(names(s1)) %in% s1_virus_cellID]
+dim(s1) 
+
+
+## Sample 2
+dim(s2) 
+
+s2 <- s2[, rownames(s2_metrics[s2_metrics$genes >= gene_low_threshold &
+                                 s2_metrics$map_percentage > align_low_threshold_s2 & 
+                                 s2_metrics$map_percentage < align_high_threshold_s2 &
+                                 s2_metrics$log10reads > reads_low_threshold_s2 &
+                                 s2_metrics$log10reads < reads_high_threshold_s2 &
+                                 s2_metrics$log10UMI > log10UMI_low_threshold_s2 &
+                                 s2_metrics$log10UMI < log10UMI_high_threshold_s2 &
+                                 s2_metrics$percentage.mito > mito.genes_low_threshold_s2 &
+                                 s2_metrics$percentage.mito < mito.genes_high_threshold_s2, ])]
+dim(s2)
+
+
+## Sample 3
+dim(s3) 
+
+s3 <- s3[, rownames(s3_metrics[s3_metrics$genes >= gene_low_threshold &
+                                 s3_metrics$map_percentage > align_low_threshold_s3 & 
+                                 s3_metrics$map_percentage < align_high_threshold_s3 &
+                                 s3_metrics$log10reads > reads_low_threshold_s3 &
+                                 s3_metrics$log10reads < reads_high_threshold_s3 &
+                                 s3_metrics$log10UMI > log10UMI_low_threshold_s3 &
+                                 s3_metrics$log10UMI < log10UMI_high_threshold_s3 &
+                                 s3_metrics$percentage.mito > mito.genes_low_threshold_s3 &
+                                 s3_metrics$percentage.mito < mito.genes_high_threshold_s3, ])]
+dim(s3) 
+
+
+## Sample 4
+dim(s4) 
+
+s4 <- s4[, rownames(s4_metrics[s4_metrics$genes >= gene_low_threshold &
+                                 s4_metrics$map_percentage > align_low_threshold_s4 & 
+                                 s4_metrics$map_percentage < align_high_threshold_s4 &
+                                 s4_metrics$log10reads > reads_low_threshold_s4 &
+                                 s4_metrics$log10reads < reads_high_threshold_s4 &
+                                 s4_metrics$log10UMI > log10UMI_low_threshold_s4 &
+                                 s4_metrics$log10UMI < log10UMI_high_threshold_s4 &
+                                 s4_metrics$percentage.mito > mito.genes_low_threshold_s4 &
+                                 s4_metrics$percentage.mito < mito.genes_high_threshold_s4, ])]
+dim(s4) 
+
+```
+
+
+
+#### Filtering cells based on the number of detected genes given the number of UMIs ####
+```{r warning=FALSE, message=FALSE}
+s1_metrics_after_filter1 <- s1_metrics[colnames(s1),]
+s2_metrics_after_filter1 <- s2_metrics[colnames(s2),]
+s3_metrics_after_filter1 <- s3_metrics[colnames(s3),]
+s4_metrics_after_filter1 <- s4_metrics[colnames(s4),]
+
+metrics_after_filter1 <- rbind(s1_metrics_after_filter1, s2_metrics_after_filter1,
+                               s3_metrics_after_filter1, s4_metrics_after_filter1)
+metrics_after_filter1$sample <- factor(metrics_after_filter1$sample,
+                                       levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+# Scatter plot
+ggplot(metrics_after_filter1, aes(x=log10UMI, y=genes, color=sample)) +
+  geom_point(alpha=0.8) +
+  labs(x="Number of UMIs (log10 transformed)", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+```
+
+
+
+#### Re-plot the # genes detected, mapping rate, # of UMI and reads, and mitochondrial gene ratio ####
+```{r warning=FALSE, message=FALSE}
+ggplot(metrics_after_filter1, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.6, 1, 0.05), limits=c(0.85, 0.97))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+ggplot(metrics_after_filter1, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="A549 Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+```
+
+
+
+#### Filtering out genes not detected in at least 3 cells ####
+```{r warning=FALSE, message=FALSE}
+s1 <- s1[rowSums(s1 != 0) >= 3, ]
+s2 <- s2[rowSums(s2 != 0) >= 3, ]
+s3 <- s3[rowSums(s3 != 0) >= 3, ]
+s4 <- s4[rowSums(s4 != 0) >= 3, ]
+
+dim(s1)
+dim(s2)
+dim(s3)
+dim(s4)
+
+```
+
+
+
+#### Save QCed gene expression matrix ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+## Sample 1
+save(s1, file="A549ALLsamples_QCed_gene-expression-matrix_S1_A549-Mock.RData")
+
+## Sample 2
+save(s2, file="A549ALLsamples_QCed_gene-expression-matrix_S2_A549-6h.RData")
+
+## Sample 3
+save(s3, file="A549ALLsamples_QCed_gene-expression-matrix_S3_A549-12h.RData")
+
+## Sample 4
+save(s4, file="A549ALLsamples_QCed_gene-expression-matrix_S4_A549-24h.RData")
+
+```
+
+
+
+###### HBEpC Cells ######
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+
+```
+
+#### Read gene expression matrix data ####
+```{r warning=FALSE, message=FALSE}
+s5.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_Mock/Cellranger_v210_outs/hg19_PR8segs/")
+s5 <- as.data.frame(as.matrix(s5.data))
+s5_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_Mock/HBEpC_Mock_S5_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE)
+s5_virus <- s5_virus[order(s5_virus$seg), ]
+rownames(s5_virus) <- s5_virus$seg
+rownames(s5_virus)
+rownames(s5_virus) <- c("PB2", "HA", "NA", "M")
+s5_virus$seg <- NULL
+s5_virus[is.na(s5_virus)] <- 0 
+s5_virus_t <- as.data.frame(t(s5_virus))
+s5_virus_t$PB1 <- rep(0, nrow(s5_virus_t))
+s5_virus_t$PA <- rep(0, nrow(s5_virus_t))
+s5_virus_t$NP <- rep(0, nrow(s5_virus_t))
+s5_virus_t$NS <- rep(0, nrow(s5_virus_t))
+s5_virus_t <- s5_virus_t[, c(1, 5:6, 2, 7, 3:4, 8)]
+s5_virus <- as.data.frame(t(s5_virus_t))
+
+s6.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_6h/Cellranger_v210_outs/hg19_PR8segs/")
+s6 <- as.data.frame(as.matrix(s6.data))
+s6_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_6h/HBEpC_6h_S6_viral_all_UMI_counts_summary.txt", 
+                       sep=",", header=TRUE, row.names=1)
+rownames(s6_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s6_virus[is.na(s6_virus)] <- 0
+
+s7.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_12h/Cellranger_v210_outs/hg19_PR8segs/")
+s7 <- as.data.frame(as.matrix(s7.data))
+s7_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_12h/HBEpC_12h_S7_viral_all_UMI_counts_summary.txt",
+                       sep=",", header=TRUE, row.names=1)
+rownames(s7_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s7_virus[is.na(s7_virus)] <- 0
+
+s8.data <- Read10X("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_24h/Cellranger_v210_outs/hg19_PR8segs/")
+s8 <- as.data.frame(as.matrix(s8.data))
+s8_virus <- read.table("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_24h/HBEpC_24h_S8_viral_all_UMI_counts_summary.txt", 
+                       sep=",", header=TRUE, row.names=1)
+rownames(s8_virus) <- c("PB2", "PB1", "PA", "HA", "NP", "NA", "M", "NS")
+s8_virus[is.na(s8_virus)] <- 0
+
+```
+
+
+
+#### Replace viral UMI counts ####
+```{r warning=FALSE, message=FALSE}
+## S5
+s5_virus <- s5_virus[, colnames(s5)]
+s5 <- rbind(s5[1:(nrow(s5)-8), ], s5_virus)
+
+
+## s6
+s6_virus <- s6_virus[, colnames(s6)]
+s6 <- rbind(s6[1:(nrow(s6)-8), ], s6_virus)
+
+
+## s7
+s7_virus <- s7_virus[, colnames(s7)]
+s7 <- rbind(s7[1:(nrow(s7)-8), ], s7_virus)
+
+
+## s8
+s8_virus <- s8_virus[, colnames(s8)]
+s8 <- rbind(s8[1:(nrow(s8)-8), ], s8_virus)
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+## Export raw data
+write.table(s5, file="../../../data_submission/processed_data/sc_HBEpC_Mock.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s6, file="../../../data_submission/processed_data/sc_HBEpC_6hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s7, file="../../../data_submission/processed_data/sc_HBEpC_12hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+write.table(s8, file="../../../data_submission/processed_data/sc_HBEpC_24hpi.txt",
+            sep="\t", quote=FALSE, na="na")
+
+```
+
+
+
+#### Prepare metrics file ####
+```{r warning=FALSE, message=FALSE}
+## Sample 5 (HBEpC Mock) ##
+# load metrics csv file
+s5_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_Mock/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s5_metrics <- s5_metrics[colnames(s5), ]
+# remove rows that could not find matches in gene expression matrix
+s5_metrics <- na.omit(s5_metrics)
+
+# log10 transformation of # of reads per cell
+s5_metrics$log10reads <- log10(s5_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s5_metrics$map_percentage <- s5_metrics$mapped_reads/s5_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s5_metrics$genes <- colSums(s5 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s5_metrics$UMI <- colSums(s5)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s5_metrics$log10UMI <- log10(s5_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s5_mito.genes <- grep(pattern="^MT-", x=rownames(s5), value=TRUE)
+s5_percent.mito <- Matrix::colSums(s5[s5_mito.genes, ]) / Matrix::colSums(s5)
+s5_metrics$percentage.mito <- s5_percent.mito
+
+
+## Sample 6 (HBEpC 6hpi) ##
+# load metrics csv file
+s6_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_6h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s6_metrics <- s6_metrics[colnames(s6), ]
+# remove rows that could not find matches in gene expression matrix
+s6_metrics <- na.omit(s6_metrics)
+
+# log10 transformation of # of reads per cell
+s6_metrics$log10reads <- log10(s6_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s6_metrics$map_percentage <- s6_metrics$mapped_reads/s6_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s6_metrics$genes <- colSums(s6 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s6_metrics$UMI <- colSums(s6)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s6_metrics$log10UMI <- log10(s6_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s6_mito.genes <- grep(pattern="^MT-", x=rownames(s6), value=TRUE)
+s6_percent.mito <- Matrix::colSums(s6[s6_mito.genes, ]) / Matrix::colSums(s6)
+s6_metrics$percentage.mito <- s6_percent.mito
+
+
+## Sample 7 (HBEpC 12hpi) ##
+# load metrics csv file
+s7_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_12h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s7_metrics <- s7_metrics[colnames(s7), ]
+# remove rows that could not find matches in gene expression matrix
+s7_metrics <- na.omit(s7_metrics)
+
+# log10 transformation of # of reads per cell
+s7_metrics$log10reads <- log10(s7_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s7_metrics$map_percentage <- s7_metrics$mapped_reads/s7_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s7_metrics$genes <- colSums(s7 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s7_metrics$UMI <- colSums(s7)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s7_metrics$log10UMI <- log10(s7_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s7_mito.genes <- grep(pattern="^MT-", x=rownames(s7), value=TRUE)
+s7_percent.mito <- Matrix::colSums(s7[s7_mito.genes, ]) / Matrix::colSums(s7)
+s7_metrics$percentage.mito <- s7_percent.mito
+
+
+## Sample 8 (HBEpC 24hpi) ##
+# load metrics csv file
+s8_metrics <- read.csv("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data/HBEpC_24h/cell_sam_stats_summary.csv", header = TRUE, row.names = 1)
+# match the row of metrics to the colume of gene expression matrix
+s8_metrics <- s8_metrics[colnames(s8), ]
+# remove rows that could not find matches in gene expression matrix
+s8_metrics <- na.omit(s8_metrics)
+
+# log10 transformation of # of reads per cell
+s8_metrics$log10reads <- log10(s8_metrics$reads)
+
+# calculate the percentage of mapped reads for each cell
+s8_metrics$map_percentage <- s8_metrics$mapped_reads/s8_metrics$reads
+
+# obtain the number of detected genes from expression matrix
+s8_metrics$genes <- colSums(s8 != 0)
+
+# obtain the total number of UMI per cell from expression matrix
+s8_metrics$UMI <- colSums(s8)
+# log10 transformation of the total number of UMI after adding a pseudo-count
+s8_metrics$log10UMI <- log10(s8_metrics$UMI)
+
+# obtain the percentage of reads mapped to mitochondrial genes
+s8_mito.genes <- grep(pattern="^MT-", x=rownames(s8), value=TRUE)
+s8_percent.mito <- Matrix::colSums(s8[s8_mito.genes, ]) / Matrix::colSums(s8)
+s8_metrics$percentage.mito <- s8_percent.mito
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# export the metrics to a csv file and keep a record
+write.csv(s5_metrics, file="CellQC_metrics_S5.csv")
+write.csv(s6_metrics, file="CellQC_metrics_S6.csv")
+write.csv(s7_metrics, file="CellQC_metrics_S7.csv")
+write.csv(s8_metrics, file="CellQC_metrics_S8.csv")
+
+```
+
+
+
+#### Merge all the metrics data into one metrics ####
+```{r warning=FALSE, message=FALSE}
+s5_metrics$cid <- rownames(s5_metrics)
+s5_metrics$sample <- rep("Mock", nrow(s5_metrics))
+s5_metrics$pseudo_id <- seq(1, nrow(s5_metrics))
+
+s6_metrics$cid <- rownames(s6_metrics)
+s6_metrics$sample <- rep("6hpi", nrow(s6_metrics))
+s6_metrics$pseudo_id <- seq(1, nrow(s6_metrics))
+
+s7_metrics$cid <- rownames(s7_metrics)
+s7_metrics$sample <- rep("12hpi", nrow(s7_metrics))
+s7_metrics$pseudo_id <- seq(1, nrow(s7_metrics))
+
+s8_metrics$cid <- rownames(s8_metrics)
+s8_metrics$sample <- rep("24hpi", nrow(s8_metrics))
+s8_metrics$pseudo_id <- seq(1, nrow(s8_metrics))
+
+metrics <- rbind(s5_metrics, s6_metrics, s7_metrics, s8_metrics)
+metrics$sample <- factor(metrics$sample, 
+                         levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+```
+
+
+
+#### Calculate the criteria for data filtering (for cells) ####
+```{r warning=FALSE, message=FALSE}
+## The number of detected genes per cell
+# check the number of detected genes per cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+# Density Plot
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000))
+
+# Density plot add vertical lines (threshold setted)
+ggplot(metrics, aes(x=genes, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of detected genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0,8000,1000)) +
+  geom_vline(xintercept=c(2000), size=1)
+
+gene_low_threshold <- 2000 # change this value according to the plot for different sample groups
+
+# Check the # of cells that will be filtered out
+sum(s5_metrics$genes < gene_low_threshold) 
+sum(s6_metrics$genes < gene_low_threshold) 
+sum(s7_metrics$genes < gene_low_threshold) 
+sum(s8_metrics$genes < gene_low_threshold) 
+
+
+## The alignment rate
+# check the alignment rate for each cell
+# Box plot
+ggplot(metrics, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.6, 1, 0.05))
+
+# Density Plot
+ggplot(metrics, aes(x=map_percentage, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30))
+
+# set the range for the alignment rate (mean+/-3*sd) for each sample
+align_low_threshold_s5 <- mean(s5_metrics$map_percentage) - 3*sd(s5_metrics$map_percentage)
+align_high_threshold_s5 <- mean(s5_metrics$map_percentage) + 3*sd(s5_metrics$map_percentage)
+align_low_threshold_s6 <- mean(s6_metrics$map_percentage) - 3*sd(s6_metrics$map_percentage)
+align_high_threshold_s6 <- mean(s6_metrics$map_percentage) + 3*sd(s6_metrics$map_percentage)
+align_low_threshold_s7 <- mean(s7_metrics$map_percentage) - 3*sd(s7_metrics$map_percentage)
+align_high_threshold_s7 <- mean(s7_metrics$map_percentage) + 3*sd(s7_metrics$map_percentage)
+align_low_threshold_s8 <- mean(s8_metrics$map_percentage) - 3*sd(s8_metrics$map_percentage)
+align_high_threshold_s8 <- mean(s8_metrics$map_percentage) + 3*sd(s8_metrics$map_percentage)
+
+align_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                              levels=c("Mock", "6h", "12h", "24h")),
+                              "low"=c(align_low_threshold_s5, align_low_threshold_s6,
+                                      align_low_threshold_s7, align_low_threshold_s8),
+                              "high"=c(align_high_threshold_s5, align_high_threshold_s6,
+                                       align_high_threshold_s7, align_high_threshold_s8))
+
+ggplot(s5_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s5, align_high_threshold_s5), size=1)
+
+ggplot(s6_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s6, align_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s7, align_high_threshold_s7), size=1)
+
+ggplot(s8_metrics, aes(x=map_percentage)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Mapping rates", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0.6, 1, 0.05)) +
+  scale_y_continuous(breaks=seq(0, 150, 30)) +
+  geom_vline(xintercept=c(align_low_threshold_s8, align_high_threshold_s8), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s5_metrics$map_percentage <= align_low_threshold_s5) + sum(s5_metrics$map_percentage >= align_high_threshold_s5) 
+sum(s6_metrics$map_percentage <= align_low_threshold_s6) + sum(s6_metrics$map_percentage >= align_high_threshold_s6)
+sum(s7_metrics$map_percentage <= align_low_threshold_s7) + sum(s7_metrics$map_percentage >= align_high_threshold_s7) 
+sum(s8_metrics$map_percentage <= align_low_threshold_s8) + sum(s8_metrics$map_percentage >= align_high_threshold_s8) 
+
+
+## The total number of reads (log10 transformed)
+# check the total number of reads 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# Density Plot
+ggplot(metrics, aes(x=log10reads, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+# set the range for the number of reads (mean+/-3*sd)
+reads_low_threshold_s5 <- mean(log10(s5_metrics$reads)) - 3*sd(log10(s5_metrics$reads))
+reads_high_threshold_s5 <- mean(log10(s5_metrics$reads)) + 3*sd(log10(s5_metrics$reads))
+reads_low_threshold_s6 <- mean(log10(s6_metrics$reads)) - 3*sd(log10(s6_metrics$reads))
+reads_high_threshold_s6 <- mean(log10(s6_metrics$reads)) + 3*sd(log10(s6_metrics$reads))
+reads_low_threshold_s7 <- mean(log10(s7_metrics$reads)) - 3*sd(log10(s7_metrics$reads))
+reads_high_threshold_s7 <- mean(log10(s7_metrics$reads)) + 3*sd(log10(s7_metrics$reads))
+reads_low_threshold_s8 <- mean(log10(s8_metrics$reads)) - 3*sd(log10(s8_metrics$reads))
+reads_high_threshold_s8 <- mean(log10(s8_metrics$reads)) + 3*sd(log10(s8_metrics$reads))
+
+read_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                             levels=c("Mock", "6h", "12h", "24h")),
+                             "low"=c(reads_low_threshold_s5, reads_low_threshold_s6,
+                                     reads_low_threshold_s7, reads_low_threshold_s8),
+                             "high"=c(reads_high_threshold_s5, reads_high_threshold_s6,
+                                      reads_high_threshold_s7, reads_high_threshold_s8))
+
+ggplot(s5_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s5, reads_high_threshold_s5), size=1)
+
+ggplot(s6_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s6, reads_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s7, reads_high_threshold_s7), size=1)
+
+ggplot(s8_metrics, aes(x=log10reads)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of reads (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(3.5, 5.5, 0.5)) +
+  geom_vline(xintercept=c(reads_low_threshold_s8, reads_high_threshold_s8), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s5_metrics$log10reads <= reads_low_threshold_s5) + sum(s5_metrics$log10reads >= reads_high_threshold_s5) 
+sum(s6_metrics$log10reads <= reads_low_threshold_s6) + sum(s6_metrics$log10reads >= reads_high_threshold_s6) 
+sum(s7_metrics$log10reads <= reads_low_threshold_s7) + sum(s7_metrics$log10reads >= reads_high_threshold_s7) 
+sum(s8_metrics$log10reads <= reads_low_threshold_s8) + sum(s8_metrics$log10reads >= reads_high_threshold_s8) 
+
+
+## The total number of UMI (log10 transformed)
+# check the total number of UMI 
+# Box plot
+ggplot(metrics, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# Density Plot
+ggplot(metrics, aes(x=log10UMI, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+# set the range for the number of UMI (mean+/-3*sd)
+log10UMI_low_threshold_s5 <- mean(s5_metrics$log10UMI) - 3*sd(s5_metrics$log10UMI)
+log10UMI_high_threshold_s5 <- mean(s5_metrics$log10UMI) + 3*sd(s5_metrics$log10UMI)
+log10UMI_low_threshold_s6 <- mean(s6_metrics$log10UMI) - 3*sd(s6_metrics$log10UMI)
+log10UMI_high_threshold_s6 <- mean(s6_metrics$log10UMI) + 3*sd(s6_metrics$log10UMI)
+log10UMI_low_threshold_s7 <- mean(s7_metrics$log10UMI) - 3*sd(s7_metrics$log10UMI)
+log10UMI_high_threshold_s7 <- mean(s7_metrics$log10UMI) + 3*sd(s7_metrics$log10UMI)
+log10UMI_low_threshold_s8 <- mean(s8_metrics$log10UMI) - 3*sd(s8_metrics$log10UMI)
+log10UMI_high_threshold_s8 <- mean(s8_metrics$log10UMI) + 3*sd(s8_metrics$log10UMI)
+
+UMI_threshold <- data.frame("sample"=factor(c("Mock", "6h", "12h", "24h"),
+                                            levels=c("Mock", "6h", "12h", "24h")),
+                            "low"=c(log10UMI_low_threshold_s5, log10UMI_low_threshold_s6,
+                                    log10UMI_low_threshold_s7, log10UMI_low_threshold_s8),
+                            "high"=c(log10UMI_high_threshold_s5, log10UMI_high_threshold_s6,
+                                     log10UMI_high_threshold_s7, log10UMI_high_threshold_s8))
+
+ggplot(s5_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s5, log10UMI_high_threshold_s5), size=1)
+
+ggplot(s6_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s6, log10UMI_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s7, log10UMI_high_threshold_s7), size=1)
+
+ggplot(s8_metrics, aes(x=log10UMI)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Number of UMIs (log10 transformed)", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  geom_vline(xintercept=c(log10UMI_low_threshold_s8, log10UMI_high_threshold_s8), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s5_metrics$log10UMI <= log10UMI_low_threshold_s5) + sum(s5_metrics$log10UMI >= log10UMI_high_threshold_s5)
+sum(s6_metrics$log10UMI <= log10UMI_low_threshold_s6) + sum(s6_metrics$log10UMI >= log10UMI_high_threshold_s6)
+sum(s7_metrics$log10UMI <= log10UMI_low_threshold_s7) + sum(s7_metrics$log10UMI >= log10UMI_high_threshold_s7)
+sum(s8_metrics$log10UMI <= log10UMI_low_threshold_s8) + sum(s8_metrics$log10UMI >= log10UMI_high_threshold_s8)
+
+
+## The percentage of reads mapped to the mitochondrial genes
+# Box plot
+ggplot(metrics, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+# Density Plot
+ggplot(metrics, aes(x=percentage.mito, color=sample)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(0, 0.65, 0.05))
+
+# set the range for the percentage of mitochondrial genes (mean+/-3*sd)
+mito.genes_low_threshold_s5 <- mean(s5_metrics$percentage.mito) - 3*sd(s5_metrics$percentage.mito)
+mito.genes_high_threshold_s5 <- mean(s5_metrics$percentage.mito) + 3*sd(s5_metrics$percentage.mito)
+mito.genes_low_threshold_s6 <- mean(s6_metrics$percentage.mito) - 3*sd(s6_metrics$percentage.mito)
+mito.genes_high_threshold_s6 <- mean(s6_metrics$percentage.mito) + 3*sd(s6_metrics$percentage.mito)
+mito.genes_low_threshold_s7 <- mean(s7_metrics$percentage.mito) - 3*sd(s7_metrics$percentage.mito)
+mito.genes_high_threshold_s7 <- mean(s7_metrics$percentage.mito) + 3*sd(s7_metrics$percentage.mito)
+mito.genes_low_threshold_s8 <- mean(s8_metrics$percentage.mito) - 3*sd(s8_metrics$percentage.mito)
+mito.genes_high_threshold_s8 <- mean(s8_metrics$percentage.mito) + 3*sd(s8_metrics$percentage.mito)
+
+ggplot(s5_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s5, mito.genes_high_threshold_s5), size=1)
+
+ggplot(s6_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s6, mito.genes_high_threshold_s6), size=1)
+
+ggplot(s7_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s7, mito.genes_high_threshold_s7), size=1)
+
+ggplot(s8_metrics, aes(x=percentage.mito)) +
+  geom_line(stat="density", size=1) +
+  labs(x="Percentage of mitochondrial genes", y="Density") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_x_continuous(breaks=seq(-0.1, 0.65, 0.05)) +
+  geom_vline(xintercept=c(mito.genes_low_threshold_s8, mito.genes_high_threshold_s8), size=1)
+
+# Check the # of cells that will be filtered out
+sum(s5_metrics$percentage.mito <= mito.genes_low_threshold_s5) + sum(s5_metrics$percentage.mito >= mito.genes_high_threshold_s5) 
+sum(s6_metrics$percentage.mito <= mito.genes_low_threshold_s6) + sum(s6_metrics$percentage.mito >= mito.genes_high_threshold_s6) 
+sum(s7_metrics$percentage.mito <= mito.genes_low_threshold_s7) + sum(s7_metrics$percentage.mito >= mito.genes_high_threshold_s7) 
+sum(s8_metrics$percentage.mito <= mito.genes_low_threshold_s8) + sum(s8_metrics$percentage.mito >= mito.genes_high_threshold_s8) 
+
+```
+
+
+
+#### Check the distribution of total, viral, and host UMI ####
+```{r warning=FALSE, message=FALSE}
+s5_host <- s5[1:(nrow(s5)-8), ]
+s6_host <- s6[1:(nrow(s6)-8), ]
+s7_host <- s7[1:(nrow(s7)-8), ]
+s8_host <- s8[1:(nrow(s8)-8), ]
+
+s5_host_sum <- as.data.frame(colSums(s5_host))
+s6_host_sum <- as.data.frame(colSums(s6_host))
+s7_host_sum <- as.data.frame(colSums(s7_host))
+s8_host_sum <- as.data.frame(colSums(s8_host))
+
+s5_virus_sum <- as.data.frame(colSums(s5_virus))
+s6_virus_sum <- as.data.frame(colSums(s6_virus))
+s7_virus_sum <- as.data.frame(colSums(s7_virus))
+s8_virus_sum <- as.data.frame(colSums(s8_virus))
+
+s5_host_virus_sum <- cbind(s5_host_sum, s5_virus_sum)
+s6_host_virus_sum <- cbind(s6_host_sum, s6_virus_sum)
+s7_host_virus_sum <- cbind(s7_host_sum, s7_virus_sum)
+s8_host_virus_sum <- cbind(s8_host_sum, s8_virus_sum)
+
+colnames(s5_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s6_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s7_host_virus_sum) <- c("host_sum", "virus_sum")
+colnames(s8_host_virus_sum) <- c("host_sum", "virus_sum")
+
+s5_host_virus_sum$sample <- rep("Mock", nrow(s5_host_virus_sum))
+s6_host_virus_sum$sample <- rep("6hpi", nrow(s6_host_virus_sum))
+s7_host_virus_sum$sample <- rep("12hpi", nrow(s7_host_virus_sum))
+s8_host_virus_sum$sample <- rep("24hpi", nrow(s8_host_virus_sum))
+
+s5678_host_virus_sum <- rbind(s5_host_virus_sum, s6_host_virus_sum, s7_host_virus_sum, s8_host_virus_sum)
+s5678_host_virus_sum$sample <- factor(s5678_host_virus_sum$sample,
+                                      levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+ggplot(s5678_host_virus_sum, aes(x=host_sum, y=virus_sum), fill=sample) +
+  geom_point() +
+  facet_grid(~sample) +
+  geom_abline(slope=1, intercept=0) +
+  scale_x_continuous(breaks=seq(0, 120000, 30000), limits=c(0, 120000)) +
+  scale_y_continuous(breaks=seq(0, 120000, 30000), limits=c(0, 120000)) +
+  geom_rug(alpha=0.8)
+
+s5_host_sum_median <- median(log10(s5_host_sum$`colSums(s5_host)`))
+s5_host_sum_high <- s5_host_sum_median + 3*sd(log10(s5_host_sum$`colSums(s5_host)`))
+s5_host_sum_low <- s5_host_sum_median - 3*sd(log10(s5_host_sum$`colSums(s5_host)`))
+
+s6_host_sum_median <- median(log10(s6_host_sum$`colSums(s6_host)`))
+s6_host_sum_high <- s6_host_sum_median + 3*sd(log10(s6_host_sum$`colSums(s6_host)`))
+s6_host_sum_low <- s6_host_sum_median - 3*sd(log10(s6_host_sum$`colSums(s6_host)`))
+
+s7_host_sum_median <- median(log10(s7_host_sum$`colSums(s7_host)`))
+s7_host_sum_high <- s7_host_sum_median + 3*sd(log10(s7_host_sum$`colSums(s7_host)`))
+s7_host_sum_low <- s7_host_sum_median - 3*sd(log10(s7_host_sum$`colSums(s7_host)`))
+
+s8_host_sum_median <- median(log10(s8_host_sum$`colSums(s8_host)`))
+s8_host_sum_high <- s8_host_sum_median + 3*sd(log10(s8_host_sum$`colSums(s8_host)`))
+s8_host_sum_low <- s8_host_sum_median - 3*sd(log10(s8_host_sum$`colSums(s8_host)`))
+
+# Check the # of cells that will be filtered out by cellular UMIs
+sum(log10(s5_host_virus_sum$host_sum) <= s5_host_sum_low) + sum(log10(s5_host_virus_sum$host_sum) >= s5_host_sum_high) 
+sum(log10(s6_host_virus_sum$host_sum) <= s6_host_sum_low) + sum(log10(s6_host_virus_sum$host_sum) >= s6_host_sum_high) 
+sum(log10(s7_host_virus_sum$host_sum) <= s7_host_sum_low) + sum(log10(s7_host_virus_sum$host_sum) >= s7_host_sum_high) 
+sum(log10(s8_host_virus_sum$host_sum) <= s8_host_sum_low) + sum(log10(s8_host_virus_sum$host_sum) >= s8_host_sum_high) 
+
+
+## Compare with the cells filtered out by the total UMIs
+s5_totalUMI_fail <- as.character(rownames(s5_metrics[s5_metrics$log10UMI <= log10UMI_low_threshold_s5 | 
+                                                       s5_metrics$log10UMI >= log10UMI_high_threshold_s5, ]))
+s6_totalUMI_fail <- as.character(rownames(s6_metrics[s6_metrics$log10UMI <= log10UMI_low_threshold_s6 | 
+                                                       s6_metrics$log10UMI >= log10UMI_high_threshold_s6, ]))
+s7_totalUMI_fail <- as.character(rownames(s7_metrics[s7_metrics$log10UMI <= log10UMI_low_threshold_s7 | 
+                                                       s7_metrics$log10UMI >= log10UMI_high_threshold_s7, ]))
+s8_totalUMI_fail <- as.character(rownames(s8_metrics[s8_metrics$log10UMI <= log10UMI_low_threshold_s8 | 
+                                                       s8_metrics$log10UMI >= log10UMI_high_threshold_s8, ]))
+
+s5_host_virus_sum$host_sum_log10 <- log10(s5_host_virus_sum$host_sum)
+s6_host_virus_sum$host_sum_log10 <- log10(s6_host_virus_sum$host_sum)
+s7_host_virus_sum$host_sum_log10 <- log10(s7_host_virus_sum$host_sum)
+s8_host_virus_sum$host_sum_log10 <- log10(s8_host_virus_sum$host_sum)
+s5_cellularUMI_fail <- 
+  as.character(rownames(s5_host_virus_sum[s5_host_virus_sum$host_sum_log10 <= s5_host_sum_low | 
+                                            s5_host_virus_sum$host_sum_log10 >= s5_host_sum_high, ]))
+s6_cellularUMI_fail <- 
+  as.character(rownames(s6_host_virus_sum[s6_host_virus_sum$host_sum_log10 <= s6_host_sum_low | 
+                                            s6_host_virus_sum$host_sum_log10 >= s6_host_sum_high, ]))
+s7_cellularUMI_fail <- 
+  as.character(rownames(s7_host_virus_sum[s7_host_virus_sum$host_sum_log10 <= s7_host_sum_low | 
+                                            s7_host_virus_sum$host_sum_log10 >= s7_host_sum_high, ]))
+s8_cellularUMI_fail <- 
+  as.character(rownames(s8_host_virus_sum[s8_host_virus_sum$host_sum_log10 <= s8_host_sum_low | 
+                                            s8_host_virus_sum$host_sum_log10 >= s8_host_sum_high, ]))
+
+length(intersect(s5_totalUMI_fail, s5_cellularUMI_fail)) 
+length(intersect(s6_totalUMI_fail, s6_cellularUMI_fail)) 
+length(intersect(s7_totalUMI_fail, s7_cellularUMI_fail)) 
+length(intersect(s8_totalUMI_fail, s8_cellularUMI_fail)) 
+
+# extract the ID of cells that fail to pass QC according to at least one criterion
+s5_gene_fail <- as.character(rownames(s5_metrics[s5_metrics$genes < 2000, ]))
+s6_gene_fail <- as.character(rownames(s6_metrics[s6_metrics$genes < 2000, ]))
+s7_gene_fail <- as.character(rownames(s7_metrics[s7_metrics$genes < 2000, ]))
+s8_gene_fail <- as.character(rownames(s8_metrics[s8_metrics$genes < 2000, ]))
+
+s5_maprate_fail <- 
+  as.character(rownames(s5_metrics[s5_metrics$map_percentage <= align_low_threshold_s5 | 
+                                     s5_metrics$map_percentage >= align_high_threshold_s5, ]))
+s6_maprate_fail <- 
+  as.character(rownames(s6_metrics[s6_metrics$map_percentage <= align_low_threshold_s6 | 
+                                     s6_metrics$map_percentage >= align_high_threshold_s6, ]))
+s7_maprate_fail <- 
+  as.character(rownames(s7_metrics[s7_metrics$map_percentage <= align_low_threshold_s7 | 
+                                     s7_metrics$map_percentage >= align_high_threshold_s7, ]))
+s8_maprate_fail <- 
+  as.character(rownames(s8_metrics[s8_metrics$map_percentage <= align_low_threshold_s8 | 
+                                     s8_metrics$map_percentage >= align_high_threshold_s8, ]))
+
+s5_read_fail <- 
+  as.character(rownames(s5_metrics[s5_metrics$log10reads <= reads_low_threshold_s5 | 
+                                     s5_metrics$log10reads >= reads_high_threshold_s5, ]))
+s6_read_fail <- 
+  as.character(rownames(s6_metrics[s6_metrics$log10reads <= reads_low_threshold_s6 | 
+                                     s6_metrics$log10reads >= reads_high_threshold_s6, ]))
+s7_read_fail <- 
+  as.character(rownames(s7_metrics[s7_metrics$log10reads <= reads_low_threshold_s7 | 
+                                     s7_metrics$log10reads >= reads_high_threshold_s7, ]))
+s8_read_fail <- 
+  as.character(rownames(s8_metrics[s8_metrics$log10reads <= reads_low_threshold_s8 | 
+                                     s8_metrics$log10reads >= reads_high_threshold_s8, ]))
+
+s5_mito_fail <- 
+  as.character(rownames(s5_metrics[s5_metrics$percentage.mito <= mito.genes_low_threshold_s5 | 
+                                     s5_metrics$percentage.mito >= mito.genes_high_threshold_s5, ]))
+s6_mito_fail <- 
+  as.character(rownames(s6_metrics[s6_metrics$percentage.mito <= mito.genes_low_threshold_s6 | 
+                                     s6_metrics$percentage.mito >= mito.genes_high_threshold_s6, ]))
+s7_mito_fail <- 
+  as.character(rownames(s7_metrics[s7_metrics$percentage.mito <= mito.genes_low_threshold_s7 | 
+                                     s7_metrics$percentage.mito >= mito.genes_high_threshold_s7, ]))
+s8_mito_fail <- 
+  as.character(rownames(s8_metrics[s8_metrics$percentage.mito <= mito.genes_low_threshold_s8 | 
+                                     s8_metrics$percentage.mito >= mito.genes_high_threshold_s8, ]))
+
+
+s5_fail_4c <- union(union(union(union(s5_gene_fail, s5_maprate_fail), 
+                                s5_read_fail), 
+                          s5_totalUMI_fail),
+                    s5_mito_fail)
+s6_fail_4c <- union(union(union(union(s6_gene_fail, s6_maprate_fail), 
+                                s6_read_fail), 
+                          s6_totalUMI_fail),
+                    s6_mito_fail)
+s7_fail_4c <- union(union(union(union(s7_gene_fail, s7_maprate_fail), 
+                                s7_read_fail), 
+                          s7_totalUMI_fail),
+                    s7_mito_fail)
+s8_fail_4c <- union(union(union(union(s8_gene_fail, s8_maprate_fail), 
+                               s8_read_fail), 
+                          s8_totalUMI_fail),
+                    s8_mito_fail)
+
+# Check if the cells failed cellularUMI criterion are in the union
+sum(s5_cellularUMI_fail %in% s5_fail_4c)
+sum(s6_cellularUMI_fail %in% s6_fail_4c)
+sum(s7_cellularUMI_fail %in% s7_fail_4c)
+sum(s8_cellularUMI_fail %in% s8_fail_4c)
+# Given the fact that cells failed the cellular UMI criterion are mostly included in the cells failed above four given criteria, we just decided to keep the total UMI criterion for cell QC.
+
+```
+
+
+
+#### Initial filtering of low quality cells ####
+```{r warning=FALSE, message=FALSE}
+## Filtering based on # of genes, the alignment rate, # of reads, # of UMI, and percentage of mito genes
+## Sample 5
+dim(s5) 
+
+s5 <- s5[, rownames(s5_metrics[s5_metrics$genes >= gene_low_threshold &
+                                 s5_metrics$map_percentage > align_low_threshold_s5 & 
+                                 s5_metrics$map_percentage < align_high_threshold_s5 &
+                                 s5_metrics$log10reads > reads_low_threshold_s5 &
+                                 s5_metrics$log10reads < reads_high_threshold_s5 &
+                                 s5_metrics$log10UMI > log10UMI_low_threshold_s5 &
+                                 s5_metrics$log10UMI < log10UMI_high_threshold_s5 &
+                                 s5_metrics$percentage.mito > mito.genes_low_threshold_s5 &
+                                 s5_metrics$percentage.mito < mito.genes_high_threshold_s5, ])]
+dim(s5) 
+
+# Further check to exclude any cells with any viral reads, although they may only have 1 viral read.
+s5_virus_after_filter1 <- s5[(nrow(s5)-7):nrow(s5), ]
+s5_virus_after_filter1_sum <- as.data.frame(colSums(s5_virus_after_filter1))
+s5_virus_after_filter1_sum$cell <- rownames(s5_virus_after_filter1_sum)
+s5_virus_cellID <- as.character(s5_virus_after_filter1_sum[s5_virus_after_filter1_sum$`colSums(s5_virus_after_filter1)` != 0, "cell"])
+s5 <- s5[, !(names(s5)) %in% s5_virus_cellID]
+dim(s5) 
+
+
+## Sample 6
+dim(s6) 
+
+s6 <- s6[, rownames(s6_metrics[s6_metrics$genes >= gene_low_threshold &
+                                 s6_metrics$map_percentage > align_low_threshold_s6 & 
+                                 s6_metrics$map_percentage < align_high_threshold_s6 &
+                                 s6_metrics$log10reads > reads_low_threshold_s6 &
+                                 s6_metrics$log10reads < reads_high_threshold_s6 &
+                                 s6_metrics$log10UMI > log10UMI_low_threshold_s6 &
+                                 s6_metrics$log10UMI < log10UMI_high_threshold_s6 &
+                                 s6_metrics$percentage.mito > mito.genes_low_threshold_s6 &
+                                 s6_metrics$percentage.mito < mito.genes_high_threshold_s6, ])]
+dim(s6) 
+
+
+## Sample 7
+dim(s7) 
+
+s7 <- s7[, rownames(s7_metrics[s7_metrics$genes >= gene_low_threshold &
+                                 s7_metrics$map_percentage > align_low_threshold_s7 & 
+                                 s7_metrics$map_percentage < align_high_threshold_s7 &
+                                 s7_metrics$log10reads > reads_low_threshold_s7 &
+                                 s7_metrics$log10reads < reads_high_threshold_s7 &
+                                 s7_metrics$log10UMI > log10UMI_low_threshold_s7 &
+                                 s7_metrics$log10UMI < log10UMI_high_threshold_s7 &
+                                 s7_metrics$percentage.mito > mito.genes_low_threshold_s7 &
+                                 s7_metrics$percentage.mito < mito.genes_high_threshold_s7, ])]
+dim(s7) 
+
+
+## Sample 8
+dim(s8) 
+
+s8 <- s8[, rownames(s8_metrics[s8_metrics$genes >= gene_low_threshold &
+                                 s8_metrics$map_percentage > align_low_threshold_s8 & 
+                                 s8_metrics$map_percentage < align_high_threshold_s8 &
+                                 s8_metrics$log10reads > reads_low_threshold_s8 &
+                                 s8_metrics$log10reads < reads_high_threshold_s8 &
+                                 s8_metrics$log10UMI > log10UMI_low_threshold_s8 &
+                                 s8_metrics$log10UMI < log10UMI_high_threshold_s8 &
+                                 s8_metrics$percentage.mito > mito.genes_low_threshold_s8 &
+                                 s8_metrics$percentage.mito < mito.genes_high_threshold_s8, ])]
+dim(s8) 
+
+```
+
+
+
+#### Filtering cells based on the number of detected genes given the number of UMIs ####
+```{r warning=FALSE, message=FALSE}
+s5_metrics_after_filter1 <- s5_metrics[colnames(s5),]
+s6_metrics_after_filter1 <- s6_metrics[colnames(s6),]
+s7_metrics_after_filter1 <- s7_metrics[colnames(s7),]
+s8_metrics_after_filter1 <- s8_metrics[colnames(s8),]
+
+metrics_after_filter1 <- rbind(s5_metrics_after_filter1, s6_metrics_after_filter1,
+                               s7_metrics_after_filter1, s8_metrics_after_filter1)
+metrics_after_filter1$sample <- factor(metrics_after_filter1$sample,
+                                       levels=c("Mock", "6hpi", "12hpi", "24hpi"))
+
+# Scatter plot
+ggplot(metrics_after_filter1, aes(x=log10UMI, y=genes, color=sample)) +
+  geom_point() +
+  labs(x="Number of UMIs (log10 transformed)", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+```
+
+
+
+#### Re-plot the # genes detected, mapping rate, # of UMI and reads, and mitochondrial gene ratio ####
+```{r warning=FALSE, message=FALSE}
+ggplot(metrics_after_filter1, aes(x=sample, y=genes, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of detected genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0,8000,1000))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=map_percentage, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Mapping rates") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0.6, 1, 0.05), limits=c(0.85, 0.97))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10reads, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of reads (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(3.5, 5.5, 0.5))
+
+ggplot(metrics_after_filter1, aes(x=sample, y=log10UMI, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Number of UMIs (log10 transformed)") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank())
+
+ggplot(metrics_after_filter1, aes(x=sample, y=percentage.mito, color=sample)) +
+  geom_boxplot() +
+  labs(x="HBEpC Samples", y="Percentage of mitochondrial genes") +
+  theme(axis.title.x=element_text(size=15),
+        axis.title.y=element_text(size=15),
+        axis.text=element_text(size=15),
+        legend.text=element_text(size=15),
+        legend.title=element_blank()) +
+  scale_y_continuous(breaks=seq(0, 0.65, 0.05))
+
+```
+
+
+
+#### Filtering out genes not detected in at least 3 cells ####
+```{r warning=FALSE, message=FALSE}
+s5 <- s5[rowSums(s5 != 0) >= 3, ]
+s6 <- s6[rowSums(s6 != 0) >= 3, ]
+s7 <- s7[rowSums(s7 != 0) >= 3, ]
+s8 <- s8[rowSums(s8 != 0) >= 3, ]
+
+dim(s5) 
+dim(s6) 
+dim(s7) 
+dim(s8)
+
+```
+
+
+
+#### Save QCed gene expression matrix ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+## Sample 5
+save(s5, file="HBEpCALLsamples_QCed_gene-expression-matrix_s5_HBEpC-Mock.RData")
+
+## Sample 6
+save(s6, file="HBEpCALLsamples_QCed_gene-expression-matrix_s6_HBEpC-6h.RData")
+
+## Sample 7
+save(s7, file="HBEpCALLsamples_QCed_gene-expression-matrix_s7_HBEpC-12h.RData")
+
+## Sample 8
+save(s8, file="HBEpCALLsamples_QCed_gene-expression-matrix_s8_HBEpC-24h.RData")
+
+```
+
+
