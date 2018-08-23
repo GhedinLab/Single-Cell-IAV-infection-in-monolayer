@@ -1,0 +1,195 @@
+###### 10X Sequencing Data Processing Pipeline ######
+
+#### Cell Ranger Pipeline ####
+## 1. Generate Fastq files from raw bcl files ##
+module load cellranger/2.1.0
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+cellranger mkfastq \
+  --run=../171129_SN911_0354_ACBN9DACXX \
+  --samplesheet=cellranger-bcl-samplesheet-2.1.0-s2-HiSeq_Nov.csv
+  
+## 2. Align the reads to the concatenated human and virus references and count the gene expression level ##
+module load cellranger/2.1.0
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+cellranger count --id=Nov_S2_A549_6h_HiSeq_v210 \
+  --transcriptome=/scratch/cw2505/GhedinLab/references/hg19_PR8segs_cellranger2.0.1/hg19_PR8segs \
+  --fastqs=CBN9DACXX/outs/fastq_path \
+  --indices=SI-GA-C2
+
+
+#### Preparation of mapping statistics for the following data filtering step ####
+## 1. Use samtools to convert alignment output bam file to sam file ##
+module load samtools/intel/1.6
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs
+samtools view -h -o possorted_genome_bam.bam.sam possorted_genome_bam.bam
+
+## 2. Use python script (separate_sc-sam-alignment_10Xoutput.py) to separate the sam alignment for one sample into alignments for individual cells ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs
+python /scratch/cw2505/GhedinLab/python_scripts/separate_sc-sam-alignment_10Xoutput.py \
+  -i possorted_genome_bam.bam.sam \
+  -l ./filtered_gene_bc_matrices/hg19_PR8segs/barcodes.tsv \
+  -od individual_cell_sam
+
+## 3. Use samtools to obtain the total number of reads and the number of mapped reads ##
+module load samtools/intel/1.3.1
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+mkdir individual_cell_sam_stats
+for files in Nov_S2_A549_6h_HiSeq_v210/outs/individual_cell_sam/*-1.sam
+do
+    echo "Processing files $files"
+	output=$(echo $files | sed 's/Nov_S2_A549_6h_HiSeq_v210\/outs\/individual_cell_sam/individual_cell_sam_stats/g' | sed 's/\.sam/\.sam_stats.txt/g')
+    samtools stats $files > $output
+done
+
+## 4. Use python script (extract_readNo_mappingreadNo_from_samstats.py) to extract info from sam_stats.txt, calculate the overall mapping rate for each cell, and write # of reads and overall mapping rate for each cell into csv file. ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+python /scratch/cw2505/GhedinLab/python_scripts/extract_readNo_mappingreadNo_from_samstats.py \
+  ./individual_cell_sam_stats/* \
+  -o cell_sam_stats_summary.csv
+
+
+#### Defective viral transcripts identification in the IAV-infected samples ####
+## 1. For each cell, obtain the alignment of reads mapped to viral segments by filtering individual sam files with a python script (filter_IAV_sam.py) ##
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/
+module load python/intel/2.7.12
+mkdir individual_cell_sam_IAV
+python /scratch/cw2505/GhedinLab/python_scripts/filter_IAV_sam.py \
+  individual_cell_sam/* \
+  -g /scratch/cw2505/GhedinLab/references/Influenza_A_H1N1_PR8_refseq.fasta \
+  -od individual_cell_sam_IAV
+
+## 2. Filter the individual sam files to get rid of multi-mapper (MAPQ != 255) with a python script (map_qual_filter_forSTARoutput_IAV_sam.py) ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/
+mkdir individual_cell_sam_IAV_qualfiltered
+python /scratch/cw2505/GhedinLab/python_scripts/map_qual_filter_forSTARoutput_IAV_sam.py \
+  individual_cell_sam_IAV/*.sam \
+  -od individual_cell_sam_IAV_qualfiltered
+
+## 3. Convert sam to bam and sort bam with samtools ##
+module load samtools/intel/1.6
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/
+mkdir individual_cell_bam_IAV_qualfiltered
+for files in individual_cell_sam_IAV_qualfiltered/*.sam
+do
+    echo "Processing files $files"
+    output=$(echo $files | sed 's/individual_cell_sam_IAV_qualfiltered/individual_cell_bam_IAV_qualfiltered/g' | sed 's/\.sam/\.sorted.bam/g')
+    samtools view -b $files | samtools sort -o $output
+done
+
+## 4. Obtain the coverage for each position for each viral segment with bedtools using sorted bam files as inputs ##
+module load bedtools/intel/2.26.0
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+mkdir bedtools_IAV_genomecov
+for files in Nov_S2_A549_6h_HiSeq_v210/outs/individual_cell_bam_IAV_qualfiltered/*.bam
+do 
+	echo "Processing files $files"
+    output=$(echo $files | sed 's/Nov_S2_A549_6h_HiSeq_v210\/outs\/individual_cell_bam_IAV_qualfiltered/bedtools_IAV_genomecov/g' | sed 's/\.bam/\.bed_genomecov\.txt/g')
+	bedtools genomecov -d -split -ibam $files -g /scratch/cw2505/GhedinLab/references/Influenza_A_H1N1_PR8_refseq.fasta > $output
+done
+
+## 5. Index IAV bam files for pysam to fetch the reads aligned to a given region or position for a segment ##
+module load samtools/intel/1.6
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/individual_cell_bam_IAV_qualfiltered
+for files in ./*.bam
+do
+    echo "Processing files $files"
+    samtools index $files
+done
+
+## 6. Extract the 3' peak position for IAV alignment of individual cells with python script (extract_cov-peak_each-segment_per-cell_from-bed_PR8.py) ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h
+python /scratch/cw2505/GhedinLab/python_scripts/extract_cov-peak_each-segment_per-cell_from-bed_PR8.py ./bedtools_IAV_genomecov/* -o DIP_S2_info_polymerases_3peak.csv
+
+## 7. Extract all the cigar pattern and their frequency to account for all the possible cases for “MNM” reads with python script (extract_cigar_pattern.py) ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/individual_cell_sam_IAV_qualfiltered
+python /scratch/cw2505/GhedinLab/python_scripts/extract_cigar_pattern.py -indir . -o S2_cigar_patterns_freq.txt
+mv S2_cigar_patterns_freq.txt /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/S2_cigar_patterns_freq.txt
+
+## 8. Re-count the UMIs for viral reads, including both the un-gapped and gapped reads (Re-count_viral_UMI_8seg_gapped-and-normal.py) ##
+# First, for individual cells
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs
+mkdir individual_cell_IAV_sam_all_UMI_counts
+for files in ./individual_cell_sam_IAV_qualfiltered/*.sam
+do
+    echo "Processing files $files"
+    
+    output_counts=$(echo $files | sed 's/sam_IAV_qualfiltered/IAV_sam_all_UMI_counts/g' | sed 's/\.sam/\_all_UMI_counts.txt/g')
+    
+    python /scratch/cw2505/GhedinLab/python_scripts/Re-count_viral_UMI_8seg_gapped-and-normal_v2.py \
+    --gtf_file /scratch/cw2505/GhedinLab/references/H1N1_PR8_8segs_genes_annotation.gtf \
+    --input_sam_file $files \
+    --counts_file $output_counts
+done
+
+# Extract and summarize into a single file (extract_alignment_UMI_counts_per-cell.py)
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/
+module load python/intel/2.7.12
+python /scratch/cw2505/GhedinLab/python_scripts/extract_alignment_UMI_counts_per-cell.py individual_cell_IAV_sam_all_UMI_counts/* --output A549_6h_S2_viral_all_UMI_counts_summary.txt
+
+## 9. Extract the alignment for the gapped viral reads for individual cells (Viral_DI_counts_8seg_UMI_counting.py) ##
+module load python/intel/2.7.12
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs
+mkdir individual_cell_IAV_sam_gapped_alignment_sam
+mkdir individual_cell_IAV_sam_gapped_alignment_counts
+for files in ./individual_cell_sam_IAV_qualfiltered/*.sam
+do
+    echo "Processing files $files"
+    
+    output_sam=$(echo $files | sed 's/sam_IAV_qualfiltered/IAV_sam_gapped_alignment_sam/g')
+    output_counts=$(echo $files | sed 's/sam_IAV_qualfiltered/IAV_sam_gapped_alignment_counts/g' | sed 's/\.sam/\_gapped_rcounts.txt/g')
+    
+    python /scratch/cw2505/GhedinLab/python_scripts/Viral_DI_counts_8seg_UMI_counting_v2.py \
+    --gtf_file /scratch/cw2505/GhedinLab/references/H1N1_PR8_8segs_genes_annotation.gtf \
+    --input_sam_file $files \
+    --output_sam_file $output_sam \
+    --counts_file $output_counts
+done
+
+# Summary the counts of the gapped reads (extract_alignment_UMI_counts_per-cell.py) #
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs/
+module load python/intel/2.7.12
+python /scratch/cw2505/GhedinLab/python_scripts/extract_alignment_UMI_counts_per-cell.py individual_cell_IAV_sam_gapped_alignment_counts/* --output A549_6h_S2_gapped_UMI_counts_summary.txt
+
+## 10. Extract the boundaries of the gapped reads for the polymerase segments in individual cells (extract_DIP_percentage_per-cell_from-sam_PR8-polymerases_v6_Nov10Xdata.py) ##
+cd /scratch/cw2505/GhedinLab/scRNAseq_Nov_8samples_HiSeq/A549_6h/Nov_S2_A549_6h_HiSeq_v210/outs
+mkdir ../../DIP_UMI_stats
+module load python/intel/2.7.12
+python /scratch/cw2505/GhedinLab/python_scripts/extract_DIP_percentage_per-cell_from-sam_PR8-polymerases_v7_Nov10Xdata.py \
+  individual_cell_IAV_sam_gapped_alignment_sam/*.sam \
+  -m 10 \
+  -sl 1000 \
+  -p 100 \
+  -od ../../DIP_UMI_stats
+
+
+#### Data Filtering: Cell and Gene QC ####
+## R script ##
+10X-scData_1-CellQC.Rmd
+
+
+#### Visualization of the distribution of viral read percentage ####
+## R script ##
+10X-scData_2-Visualization-viral-read-percentage-distribution.Rmd
+
+
+#### Visualization of the deletion coordinates of defective viral transcripts and calculation their relative abundance ####
+## R script ##
+10X-scData_3-Visualization-calculation-DVGs.Rmd
+
+
+#### Initial data visualization and identification of batch effect and/or cell cycle effects if necessary ####
+## R script ##
+10X-scData_4-Initial-data-visualization-cell-cycle-assignment.Rmd
+
+
+#### Cell clustering ####
+## R script ##
+10X-scData_5-Cell-clustering_A549.Rmd
+10X-scData_5-Cell-clustering_HBEpC.Rmd
+
