@@ -1,0 +1,2499 @@
+---
+title: "10X-scData_5-Cell-clustering_HBEpC"
+author: "Chang Wang"
+date: "7/26/2018"
+output: 
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+require("knitr")
+opts_knit$set(root.dir="~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/Writing_summarization/Codes/R/")
+```
+
+###### Dimensional reduction and clustering ######
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(RColorBrewer)
+library(dplyr)
+set.seed(777)
+
+```
+
+
+
+###### HBEpC Mock ######
+```{r warning=FALSE, message=FALSE}
+load("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_Mock")
+
+```
+
+
+
+#### Clustering ####
+```{r warning=FALSE, message=FALSE}
+# Subset data from preprocessed Seurat object
+HBEpC_Mock <- SubsetData(HBEpC_withcc, WhichCells(HBEpC_withcc, "Mock"), do.scale=FALSE) # Because it already is scaled.
+HBEpC_Mock 
+
+# Find variable gene with 4 < Average expression and Dispersion > 1
+HBEpC_Mock <- FindVariableGenes(HBEpC_Mock, 
+                                x.low.cutoff=0.1, x.high.cutoff=4, 
+                                y.cutoff=1, y.high.cutoff=Inf)
+length(HBEpC_Mock@var.genes) 
+
+# Run a PCA using variable gene list
+HBEpC_Mock <- RunPCA(HBEpC_Mock, pc.genes=HBEpC_Mock@var.genes, 
+                     do.print=TRUE, pcs.print=1:20)
+# Visualize both cells and genes that define the PCA
+VizPCA(object=HBEpC_Mock, pcs.use=1:2)
+PCAPlot(object=HBEpC_Mock, dim.1=1, dim.2=2)
+PCHeatmap(HBEpC_Mock, pc.use=1:12, cells.use=500, do.balanced=TRUE,
+          label.columns=FALSE, cexRow=0.5)
+
+# The jackStraw plot compares the distribution of P-values for each PC 
+# with a uniform distribution (dashed line).
+HBEpC_Mock <- JackStraw(HBEpC_Mock, num.replicate=100, do.print=FALSE)
+JackStrawPlot(HBEpC_Mock, PCs=1:20)
+
+# Check the PCElbowPlot for determining which PCs to use 
+# by looking at a plot of the standard deviations of the principle components 
+# and draw your cutoff where there is a clear elbow in the graph
+PCElbowPlot(object=HBEpC_Mock)
+
+# Run tSNE using significant PCs as input (spectral tSNE)
+set.seed(777)
+HBEpC_Mock <- RunTSNE(HBEpC_Mock, max_iter=2000, dims.use=c(1:3, 5:10), perplexity=70)
+TSNEPlot(HBEpC_Mock, do.label=TRUE, label.size=6, pt.size=2)
+
+# Find cell clusters using Modularity optimization cluster detection.
+HBEpC_Mock <- FindClusters(HBEpC_Mock, dims.use=c(1:3, 5:10), resolution=0.4, print.output=0)
+TSNEPlot(HBEpC_Mock, do.label=TRUE, label.pt.size=1)
+
+# The validity of the clusters can be validated using a classification scheme 
+# based on linear SVMs. 
+HBEpC_Mock <- BuildSNN(HBEpC_Mock, dims.use=c(1:3, 5:10))
+HBEpC_Mock <- ValidateClusters(HBEpC_Mock, pc.use=c(1:3, 5:10), min.connectivity=0.001, 
+                               acc.cutoff=0.9)
+TSNEPlot(HBEpC_Mock, do.label=TRUE, label.size=6, pt.size=2,
+         colors.use=c("#2096BA", "#E7B183", "#C5919D", "#DF6E21", "#C5D2DB"))
+# Plot the distribution of cell cycle phases
+tmp <- HBEpC_Mock
+tmp@meta.data$Phase <- factor(tmp@meta.data$Phase, levels=c("G1", "S", "G2M"))
+TSNEPlot(tmp, do.label=FALSE, label.size=6, pt.size=2, group.by="Phase",
+         colors.use=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+```
+
+
+
+#### Identification of markers for each cluster ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+# Try default "bimod" (likelihood-ratio test)
+markers.bimod <- FindAllMarkers(HBEpC_Mock, logfc.threshold=0.25, test.use="bimod", 
+                                min.pct=0.25)
+markers.bimod$gene <- rownames(markers.bimod)
+
+# Try 'negbinom' (negative-binomial) for UMI dataset
+markers.negbinom <- FindAllMarkers(HBEpC_Mock, logfc.threshold=0.25, test.use="negbinom", 
+                                   min.pct=0.25)
+markers.negbinom$gene <- rownames(markers.negbinom)
+
+# Try 'poisson' (likelihood ratio test assuming an underlying poisson distribution) for UMI dataset
+markers.poisson <- FindAllMarkers(HBEpC_Mock, logfc.threshold=0.25, test.use="poisson", 
+                                  min.pct=0.25)
+markers.poisson$gene <- rownames(markers.poisson)
+
+# Try 'MAST' 
+markers.MAST <- FindAllMarkers(HBEpC_Mock, logfc.threshold=0.25, test.use="MAST", 
+                               min.pct=0.25)
+markers.MAST$gene <- rownames(markers.MAST)
+
+
+# For results from each test, only keep genes with adjusted p-value < 0.05, 
+markers.bimod_filtered <- markers.bimod[markers.bimod$p_val_adj < 0.05, ]
+markers.negbinom_filtered <- markers.negbinom[markers.negbinom$p_val_adj < 0.05, ]
+markers.poisson_filtered <- markers.poisson[markers.poisson$p_val_adj < 0.05, ]
+markers.MAST_filtered <- markers.MAST[markers.MAST$p_val_adj < 0.05, ]
+
+
+## Sort marker genes by logFC ##
+# Sort the marker gene list by the log2 FC (avg_logFC) within each cluster (positive ones on top)
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$avg_logFC, decreasing=TRUE), ]
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$cluster), ]
+
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$avg_logFC, decreasing=TRUE), ]
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$cluster), ]
+
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$avg_logFC, decreasing=TRUE), ]
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$cluster), ]
+
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$avg_logFC, decreasing=TRUE), ]
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$cluster), ]
+
+```
+
+
+
+#### Extract marker genes (intersect from four methods) ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+genes <- rownames(HBEpC_Mock@scale.data)
+# bimod
+markers.bimod_filtered_cname <- markers.bimod_filtered
+for (i in 1:nrow(markers.bimod_filtered_cname)) {
+  if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+    markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                      1, 
+                                                      nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+      markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.bimod_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# negbinom
+markers.negbinom_filtered_cname <- markers.negbinom_filtered
+for (i in 1:nrow(markers.negbinom_filtered_cname)) {
+  if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+    markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                         1, 
+                                                         nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+      markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                           1, 
+                                                           nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.negbinom_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# poisson
+markers.poisson_filtered_cname <- markers.poisson_filtered
+for (i in 1:nrow(markers.poisson_filtered_cname)) {
+  if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+    markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+      markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                          1, 
+                                                          nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.poisson_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# MAST
+markers.MAST_filtered_cname <- markers.MAST_filtered
+for (i in 1:nrow(markers.MAST_filtered_cname)) {
+  if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+    markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                     1, 
+                                                     nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+      markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                       1, 
+                                                       nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.MAST_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+
+# Cluster 0
+markers.bimod_c0 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "0", ]
+markers.MAST_c0 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "0", ]
+markers.negbinom_c0 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "0", ]
+markers.poisson_c0 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "0", ]
+
+markers.intersect_c0 <- merge(markers.bimod_c0, markers.MAST_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.negbinom_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.poisson_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# Cluster 1
+markers.bimod_c1 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "1", ]
+markers.MAST_c1 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "1", ]
+markers.negbinom_c1 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "1", ]
+markers.poisson_c1 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "1", ]
+
+markers.intersect_c1 <- merge(markers.bimod_c1, markers.MAST_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.negbinom_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.poisson_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 2
+markers.bimod_c2 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "2", ]
+markers.MAST_c2 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "2", ]
+markers.negbinom_c2 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "2", ]
+markers.poisson_c2 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "2", ]
+
+markers.intersect_c2 <- merge(markers.bimod_c2, markers.MAST_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.negbinom_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.poisson_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 3
+markers.bimod_c3 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "3", ]
+markers.MAST_c3 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "3", ]
+markers.negbinom_c3 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "3", ]
+markers.poisson_c3 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "3", ]
+
+markers.intersect_c3 <- merge(markers.bimod_c3, markers.MAST_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.negbinom_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.poisson_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 4
+markers.bimod_c4 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "4", ]
+markers.MAST_c4 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "4", ]
+markers.negbinom_c4 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "4", ]
+markers.poisson_c4 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "4", ]
+
+markers.intersect_c4 <- merge(markers.bimod_c4, markers.MAST_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.negbinom_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.poisson_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Export intersect gene list 
+write.csv(markers.intersect_c0, "Seurat/HBEpC_Mock_dim1-10_cluster0_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c1, "Seurat/HBEpC_Mock_dim1-10_cluster1_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c2, "Seurat/HBEpC_Mock_dim1-10_cluster2_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c3, "Seurat/HBEpC_Mock_dim1-10_cluster3_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c4, "Seurat/HBEpC_Mock_dim1-10_cluster4_all-marker-genes_four-method-intersect.csv")
+
+```
+
+
+
+#### Check the distribution of cell cycle in each cluster ####
+```{r warning=FALSE, message=FALSE}
+s5_meta.data <- HBEpC_Mock@meta.data
+s5_phase_clusterID <- s5_meta.data[, c("Phase", "res.0.4")]
+s5_phase_clusterID_tb <- as.data.frame(100*prop.table(table(s5_phase_clusterID), margin=2))
+s5_phase_clusterID_tb$Phase <- factor(s5_phase_clusterID_tb$Phase,
+                                      levels=c("G1", "S", "G2M"))
+s5_phase_clusterID_tb$res.0.4 <- factor(s5_phase_clusterID_tb$res.0.4,
+                                        levels=c(0,1,2,3))
+
+ggplot(s5_phase_clusterID_tb, aes(x=res.0.4, y=Freq, fill=Phase)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2")) +
+  labs(x="Cluster identity", y="Percentage of cells in each cell cycle stage",
+       fill="Phase") +
+  theme(text=element_text(size=15))
+
+```
+
+
+
+#### Save results ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+save(HBEpC_Mock, 
+     markers.bimod, markers.bimod_filtered,
+     markers.MAST, markers.MAST_filtered,
+     markers.negbinom, markers.negbinom_filtered,
+     markers.poisson, markers.poisson_filtered,
+     file="HBEpC_Mock_Seurat_clustering_results_resolution0.4_5clusters.RData")
+
+```
+
+
+
+###### HBEpC 6hpi ######
+```{r warning=FALSE, message=FALSE}
+set.seed(777)
+load("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_6h")
+
+```
+
+
+
+#### Clustering ####
+```{r warning=FALSE, message=FALSE}
+# Subset data from preprocessed Seurat object
+HBEpC_6h <- SubsetData(HBEpC_withcc, WhichCells(HBEpC_withcc, "6h"), do.scale=FALSE) # Because it already is scaled.
+HBEpC_6h 
+
+# Find variable gene with 4 < Average expression and Dispersion > 1
+HBEpC_6h <- FindVariableGenes(HBEpC_6h, 
+                              x.low.cutoff=0.1, x.high.cutoff=4, 
+                              y.cutoff=1, y.high.cutoff=Inf)
+length(HBEpC_6h@var.genes) 
+
+# Run a PCA using variable gene list
+HBEpC_6h <- RunPCA(HBEpC_6h, pc.genes=HBEpC_6h@var.genes, do.print=TRUE, pcs.print=1:10)
+# Visualize both cells and genes that define the PCA
+VizPCA(object=HBEpC_6h, pcs.use=1:2)
+PCAPlot(object=HBEpC_6h, dim.1=1, dim.2=2)
+PCHeatmap(HBEpC_6h, pc.use=1:12, cells.use=500, do.balanced=TRUE,
+          label.columns=FALSE, cexRow=0.5)
+
+# The jackStraw plot compares the distribution of P-values for each PC 
+# with a uniform distribution (dashed line).
+HBEpC_6h <- JackStraw(HBEpC_6h, num.replicate=100, do.print=FALSE)
+JackStrawPlot(HBEpC_6h, PCs=1:20) 
+
+# Check the PCElbowPlot for determining which PCs to use 
+# by looking at a plot of the standard deviations of the principle components 
+# and draw your cutoff where there is a clear elbow in the graph
+PCElbowPlot(object=HBEpC_6h)
+
+# Run tSNE using significant PCs as input (spectral tSNE)
+set.seed(777)
+HBEpC_6h <- RunTSNE(HBEpC_6h, max_iter=2000, dims.use=c(1:2, 4, 6:10), perplexity=70)
+TSNEPlot(HBEpC_6h, do.label=TRUE, label.size=6, pt.size=2)
+
+# Find cell clusters using Modularity optimization cluster detection.
+HBEpC_6h <- FindClusters(HBEpC_6h, dims.use=c(1:2, 4, 6:10), resolution=0.4, print.output=0)
+TSNEPlot(HBEpC_6h, do.label=TRUE, label.pt.size=1)
+
+# The validity of the clusters can be validated using a classification scheme 
+# based on linear SVMs. 
+HBEpC_6h <- BuildSNN(HBEpC_6h, dims.use=c(1:2, 4, 6:10), k.param=30)
+HBEpC_6h <- ValidateClusters(HBEpC_6h, pc.use=c(1:2, 4, 6:10), min.connectivity=0.001, 
+                             acc.cutoff=0.9)
+TSNEPlot(HBEpC_6h, do.label=TRUE, label.size=6, pt.size=2,
+         colors.use=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+HBEpC_6h@meta.data$Phase <- factor(HBEpC_6h@meta.data$Phase, 
+                                   levels=c("G1", "S", "G2M"))
+TSNEPlot(HBEpC_6h, do.label=FALSE, label.size=6, pt.size=2, group.by="Phase",
+         colors.use=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+```
+
+
+
+#### Identification of markers for each cluster ####
+```{r warning=FALSE, message=FALSE}
+# Try default "bimod" (likelihood-ratio test)
+markers.bimod <- FindAllMarkers(HBEpC_6h, logfc.threshold=0.25, test.use="bimod", 
+                                min.pct=0.25)
+markers.bimod$gene <- rownames(markers.bimod)
+
+# Try 'negbinom' (negative-binomial) for UMI dataset
+markers.negbinom <- FindAllMarkers(HBEpC_6h, logfc.threshold=0.25, test.use="negbinom", 
+                                   min.pct=0.25)
+markers.negbinom$gene <- rownames(markers.negbinom)
+
+# Try 'poisson' (likelihood ratio test assuming an underlying poisson distribution) for UMI dataset
+markers.poisson <- FindAllMarkers(HBEpC_6h, logfc.threshold=0.25, test.use="poisson", 
+                                  min.pct=0.25)
+markers.poisson$gene <- rownames(markers.poisson)
+
+# Try 'MAST' 
+markers.MAST <- FindAllMarkers(HBEpC_6h, logfc.threshold=0.25, test.use="MAST", 
+                               min.pct=0.25)
+markers.MAST$gene <- rownames(markers.MAST)
+
+
+# For results from each test, only keep genes with adjusted p-value < 0.05, 
+markers.bimod_filtered <- markers.bimod[markers.bimod$p_val_adj < 0.05, ]
+markers.negbinom_filtered <- markers.negbinom[markers.negbinom$p_val_adj < 0.05, ]
+markers.poisson_filtered <- markers.poisson[markers.poisson$p_val_adj < 0.05, ]
+markers.MAST_filtered <- markers.MAST[markers.MAST$p_val_adj < 0.05, ]
+
+
+## Sort marker genes by logFC ##
+# Sort the marker gene list by the log2 FC (avg_logFC) within each cluster (positive ones on top)
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$avg_logFC, decreasing=TRUE), ]
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$cluster), ]
+
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$avg_logFC, decreasing=TRUE), ]
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$cluster), ]
+
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$avg_logFC, decreasing=TRUE), ]
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$cluster), ]
+
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$avg_logFC, decreasing=TRUE), ]
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$cluster), ]
+
+```
+
+
+
+#### Extract marker genes (intersect from four methods) ####
+```{r warning=FALSE, message=FALSE}
+genes <- rownames(HBEpC_6h@scale.data)
+# bimod
+markers.bimod_filtered_cname <- markers.bimod_filtered
+for (i in 1:nrow(markers.bimod_filtered_cname)) {
+  if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+    markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                      1, 
+                                                      nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+      markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.bimod_filtered_cname$gene %in% genes)
+
+# negbinom
+markers.negbinom_filtered_cname <- markers.negbinom_filtered
+for (i in 1:nrow(markers.negbinom_filtered_cname)) {
+  if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+    markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                         1, 
+                                                         nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+      markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                           1, 
+                                                           nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.negbinom_filtered_cname$gene %in% genes) 
+
+# poisson
+markers.poisson_filtered_cname <- markers.poisson_filtered
+for (i in 1:nrow(markers.poisson_filtered_cname)) {
+  if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+    markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+      markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                          1, 
+                                                          nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.poisson_filtered_cname$gene %in% genes)  
+
+# MAST
+markers.MAST_filtered_cname <- markers.MAST_filtered
+for (i in 1:nrow(markers.MAST_filtered_cname)) {
+  if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+    markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                     1, 
+                                                     nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+      markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                       1, 
+                                                       nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.MAST_filtered_cname$gene %in% genes) 
+
+
+# Cluster 0
+markers.bimod_c0 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "0", ]
+markers.MAST_c0 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "0", ]
+markers.negbinom_c0 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "0", ]
+markers.poisson_c0 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "0", ]
+
+markers.intersect_c0 <- merge(markers.bimod_c0, markers.MAST_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.negbinom_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.poisson_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# Cluster 1
+markers.bimod_c1 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "1", ]
+markers.MAST_c1 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "1", ]
+markers.negbinom_c1 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "1", ]
+markers.poisson_c1 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "1", ]
+
+markers.intersect_c1 <- merge(markers.bimod_c1, markers.MAST_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.negbinom_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.poisson_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 2
+markers.bimod_c2 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "2", ]
+markers.MAST_c2 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "2", ]
+markers.negbinom_c2 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "2", ]
+markers.poisson_c2 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "2", ]
+
+markers.intersect_c2 <- merge(markers.bimod_c2, markers.MAST_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.negbinom_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.poisson_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 3
+markers.bimod_c3 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "3", ]
+markers.MAST_c3 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "3", ]
+markers.negbinom_c3 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "3", ]
+markers.poisson_c3 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "3", ]
+
+markers.intersect_c3 <- merge(markers.bimod_c3, markers.MAST_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.negbinom_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.poisson_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 4
+markers.bimod_c4 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "4", ]
+markers.MAST_c4 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "4", ]
+markers.negbinom_c4 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "4", ]
+markers.poisson_c4 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "4", ]
+
+markers.intersect_c4 <- merge(markers.bimod_c4, markers.MAST_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.negbinom_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.poisson_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Export intersect gene list 
+write.csv(markers.intersect_c0, "Seurat/HBEpC_6hpi_dim1-10_cluster0_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c1, "Seurat/HBEpC_6hpi_dim1-10_cluster1_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c2, "Seurat/HBEpC_6hpi_dim1-10_cluster2_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c3, "Seurat/HBEpC_6hpi_dim1-10_cluster3_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c4, "Seurat/HBEpC_6hpi_dim1-10_cluster4_all-marker-genes_four-method-intersect.csv")
+
+```
+
+
+
+#### Visualize the viral read percentage for each cluster ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S6_HBEpC-6h.RData")
+s6_virus_data <- s6[(nrow(s6)-7):nrow(s6), ]
+cell.use <- colnames(HBEpC_6h@scale.data)
+colnames(s6_virus_data) <- paste("HBEpC_6h_", colnames(s6_virus_data), sep="")
+s6_virus_data.use <- s6_virus_data[, cell.use]
+s6_virus_data.use <- rbind(s6_virus_data.use, colSums(s6_virus_data.use))
+rownames(s6_virus_data.use)[9] <- "vsum"
+s6_data_csum <- as.data.frame(colSums(s6))
+rownames(s6_data_csum) <- paste("HBEpC_6h_", rownames(s6_data_csum), sep="")
+s6_data_csum$cells <- rownames(s6_data_csum)
+colnames(s6_data_csum)[1] <- "rsum"
+s6.use <- s6_data_csum[cell.use, ]
+s6_virus_data.use <- as.data.frame(t(s6_virus_data.use))
+s6_virus_data.use$cells <- rownames(s6_virus_data.use)
+s6_virus_data.use <- merge(s6_virus_data.use, s6.use, by="cells")
+s6_virus_data.use$vpercent <- s6_virus_data.use[, 10]*100/s6_virus_data.use[, 11]
+colnames(s6_virus_data.use)[1] <- "cell"
+s6_meta.data <- HBEpC_6h@meta.data
+s6_meta.data$cell <- rownames(s6_meta.data)
+s6_meta.data <- merge(s6_meta.data, s6_virus_data.use, by="cell")
+rownames(s6_meta.data) <- s6_meta.data$cell
+colnames(s6_meta.data)[20] <- "Viral_read_percentage"
+HBEpC_6h@meta.data <- s6_meta.data
+
+FeaturePlot(object=HBEpC_6h, features.plot=c("Viral_read_percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+# boxplot
+s6_meta.data$res.0.4 <- factor(s6_meta.data$res.0.4, levels=c(0, 1, 2, 3, 4))
+p <- ggplot(s6_meta.data, aes(res.0.4, Viral_read_percentage, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="Viral read percentages", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+
+
+## Test the viral reads percentages among clusters are significantly different from each other
+kruskal.test(Viral_read_percentage ~ res.0.4, s6_meta.data) 
+vp_s6_c0vsc1 <- s6_meta.data[s6_meta.data$res.0.4 == "0" | 
+                               s6_meta.data$res.0.4 == "1", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c0vsc1) 
+vp_s6_c0vsc3 <- s6_meta.data[s6_meta.data$res.0.4 == "0" | 
+                               s6_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c0vsc3) 
+vp_s6_c0vsc4 <- s6_meta.data[s6_meta.data$res.0.4 == "0" | 
+                               s6_meta.data$res.0.4 == "4", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c0vsc4) 
+vp_s6_c1vsc2 <- s6_meta.data[s6_meta.data$res.0.4 == "1" | 
+                               s6_meta.data$res.0.4 == "2", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c1vsc2) 
+vp_s6_c1vsc3 <- s6_meta.data[s6_meta.data$res.0.4 == "1" | 
+                               s6_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c1vsc3) 
+vp_s6_c1vsc4 <- s6_meta.data[s6_meta.data$res.0.4 == "1" | 
+                               s6_meta.data$res.0.4 == "4", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c1vsc4) 
+vp_s6_c2vsc3 <- s6_meta.data[s6_meta.data$res.0.4 == "2" | 
+                               s6_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c2vsc3) 
+vp_s6_c2vsc4 <- s6_meta.data[s6_meta.data$res.0.4 == "2" | 
+                               s6_meta.data$res.0.4 == "4", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c2vsc4) 
+vp_s6_c3vsc4 <- s6_meta.data[s6_meta.data$res.0.4 == "3" | 
+                               s6_meta.data$res.0.4 == "4", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s6_c3vsc4) 
+
+```
+
+
+
+#### Visualize each viral segment percentage on tSNE ####
+```{r warning=FALSE, message=FALSE}
+s6_meta.data <- HBEpC_6h@meta.data
+s6_meta.data_vsegpercent <- s6_meta.data[, c("cell", "PB2", "PB1", "PA", "HA", "NP", "NA",
+                                             "M", "NS")]
+rownames(s6_meta.data_vsegpercent) <- s6_meta.data_vsegpercent$cell
+s6_meta.data_vsegpercent$cell <- NULL
+s6_meta.data_vsegpercent <- as.matrix(s6_meta.data_vsegpercent)
+s6_meta.data_vsegpercent <- as.data.frame(100*(s6_meta.data_vsegpercent/s6_meta.data$rsum))
+s6_meta.data_vsegpercent$cell <- rownames(s6_meta.data_vsegpercent)
+colnames(s6_meta.data_vsegpercent)[1:8] <- c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                             "HA percentage", "NP percentage", "NA percentage",
+                                             "M percentage", "NS percentage")
+s6_meta.data <- merge(s6_meta.data, s6_meta.data_vsegpercent, by="cell")
+rownames(s6_meta.data) <- s6_meta.data$cell
+s6_meta.data <- s6_meta.data[HBEpC_6h@cell.names, ]
+HBEpC_6h@meta.data <- s6_meta.data
+
+FeaturePlot(object=HBEpC_6h, features.plot=c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                             "HA percentage", "NP percentage", "NA percentage",
+                                             "M percentage", "NS percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+VlnPlot(HBEpC_6h, c("PB2 percentage", "PB1 percentage", "PA percentage",
+                    "HA percentage", "NP percentage", "NA percentage",
+                    "M percentage", "NS percentage"), 
+        nCol=3, point.size.use=0.05,
+        cols.use=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+
+```
+
+
+
+#### Check the distribution of cell cycle in each cluster ####
+```{r warning=FALSE, message=FALSE}
+s6_meta.data <- HBEpC_6h@meta.data
+s6_phase_clusterID <- s6_meta.data[, c("Phase", "res.0.4")]
+s6_phase_clusterID_tb <- as.data.frame(100*prop.table(table(s6_phase_clusterID), margin=2))
+s6_phase_clusterID_tb$Phase <- factor(s6_phase_clusterID_tb$Phase,
+                                      levels=c("G1", "S", "G2M"))
+s6_phase_clusterID_tb$res.0.4 <- factor(s6_phase_clusterID_tb$res.0.4, levels=c(0,1,2,3,4))
+
+ggplot(s6_phase_clusterID_tb, aes(x=res.0.4, y=Freq, fill=Phase)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2")) +
+  labs(x="Cluster identity", y="Percentage of cells in each cell cycle stage",
+       fill="Phase") +
+  theme(text=element_text(size=15))
+
+```
+
+
+
+#### Save results ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+save(HBEpC_6h, 
+     markers.bimod, markers.bimod_filtered,
+     markers.MAST, markers.MAST_filtered,
+     markers.negbinom, markers.negbinom_filtered,
+     markers.poisson, markers.poisson_filtered,
+     file="HBEpC_6h_Seurat_clustering_results_resolution0.4_5clusters.RData")
+
+```
+
+
+
+###### HBEpC 12hpi ######
+```{r warning=FALSE, message=FALSE}
+set.seed(777)
+load("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_12h/")
+
+```
+
+
+
+#### Clustering ####
+```{r warning=FALSE, message=FALSE}
+# Subset data from preprocessed Seurat object
+HBEpC_12h <- SubsetData(HBEpC_withcc, WhichCells(HBEpC_withcc, "12h"), do.scale=FALSE) # Because it already is scaled.
+HBEpC_12h 
+
+# Find variable gene with 4 < Average expression and Dispersion > 1
+HBEpC_12h <- FindVariableGenes(HBEpC_12h, 
+                               x.low.cutoff=0.1, x.high.cutoff=4, 
+                               y.cutoff=1, y.high.cutoff=Inf)
+length(HBEpC_12h@var.genes) 
+
+# Run a PCA using variable gene list
+HBEpC_12h <- RunPCA(HBEpC_12h, pc.genes=HBEpC_12h@var.genes, do.print=TRUE, pcs.print=1:10)
+# Visualize both cells and genes that define the PCA
+VizPCA(object=HBEpC_12h, pcs.use=1:2)
+PCAPlot(object=HBEpC_12h, dim.1=1, dim.2=2)
+PCHeatmap(HBEpC_12h, pc.use=1:12, cells.use=500, do.balanced=TRUE,
+          label.columns=FALSE, cexRow=0.5)
+
+# The jackStraw plot compares the distribution of P-values for each PC 
+# with a uniform distribution (dashed line).
+HBEpC_12h <- JackStraw(HBEpC_12h, num.replicate=100, do.print=FALSE)
+JackStrawPlot(HBEpC_12h, PCs=1:20) 
+
+# Check the PCElbowPlot for determining which PCs to use 
+# by looking at a plot of the standard deviations of the principle components 
+# and draw your cutoff where there is a clear elbow in the graph
+PCElbowPlot(object=HBEpC_12h)
+
+# Run tSNE using significant PCs as input (spectral tSNE)
+set.seed(777)
+HBEpC_12h <- RunTSNE(HBEpC_12h, max_iter=2000, dims.use=c(1:5, 7, 9), perplexity=50)
+TSNEPlot(HBEpC_12h, do.label=TRUE, label.size=6, pt.size=2)
+
+# Find cell clusters using Modularity optimization cluster detection.
+HBEpC_12h <- FindClusters(HBEpC_12h, dims.use=c(1:5, 7, 9), resolution=0.4, print.output=0)
+TSNEPlot(HBEpC_12h, do.label=TRUE, label.pt.size=1)
+
+# The validity of the clusters can be validated using a classification scheme 
+# based on linear SVMs. 
+HBEpC_12h <- BuildSNN(HBEpC_12h, dims.use=c(1:5, 7, 9), k.param=30)
+HBEpC_12h <- ValidateClusters(HBEpC_12h, pc.use=c(1:5, 7, 9), min.connectivity=0.001, 
+                              acc.cutoff=0.9)
+TSNEPlot(HBEpC_12h, do.label=TRUE, label.size=6, pt.size=2,
+         colors.use=c("slateblue", "gold1", "violet", "plum1", 
+                      "darkslategray4", "darkturquoise"))
+HBEpC_12h@meta.data$Phase <- factor(HBEpC_12h@meta.data$Phase, 
+                                    levels=c("G1", "S", "G2M"))
+TSNEPlot(HBEpC_12h, do.label=FALSE, label.size=6, pt.size=2, group.by="Phase",
+         colors.use=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+```
+
+
+
+#### Identification of markers for each cluster ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+# Try default "bimod" (likelihood-ratio test)
+markers.bimod <- FindAllMarkers(HBEpC_12h, logfc.threshold=0.25, test.use="bimod", 
+                                min.pct=0.25)
+markers.bimod$gene <- rownames(markers.bimod)
+
+# Try 'negbinom' (negative-binomial) for UMI dataset
+markers.negbinom <- FindAllMarkers(HBEpC_12h, logfc.threshold=0.25, test.use="negbinom", 
+                                   min.pct=0.25)
+markers.negbinom$gene <- rownames(markers.negbinom)
+
+# Try 'poisson' (likelihood ratio test assuming an underlying poisson distribution) for UMI dataset
+markers.poisson <- FindAllMarkers(HBEpC_12h, logfc.threshold=0.25, test.use="poisson", 
+                                  min.pct=0.25)
+markers.poisson$gene <- rownames(markers.poisson)
+
+# Try 'MAST' 
+markers.MAST <- FindAllMarkers(HBEpC_12h, logfc.threshold=0.25, test.use="MAST", 
+                               min.pct=0.25)
+markers.MAST$gene <- rownames(markers.MAST)
+
+
+# For results from each test, only keep genes with adjusted p-value < 0.05, 
+markers.bimod_filtered <- markers.bimod[markers.bimod$p_val_adj < 0.05, ]
+markers.negbinom_filtered <- markers.negbinom[markers.negbinom$p_val_adj < 0.05, ]
+markers.poisson_filtered <- markers.poisson[markers.poisson$p_val_adj < 0.05, ]
+markers.MAST_filtered <- markers.MAST[markers.MAST$p_val_adj < 0.05, ]
+
+
+## Sort marker genes by logFC ##
+# Sort the marker gene list by the log2 FC (avg_logFC) within each cluster (positive ones on top)
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$avg_logFC, decreasing=TRUE), ]
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$cluster), ]
+
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$avg_logFC, decreasing=TRUE), ]
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$cluster), ]
+
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$avg_logFC, decreasing=TRUE), ]
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$cluster), ]
+
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$avg_logFC, decreasing=TRUE), ]
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$cluster), ]
+
+```
+
+
+
+#### Extract marker genes (intersect from four methods) ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+genes <- rownames(HBEpC_12h@scale.data)
+# bimod
+markers.bimod_filtered_cname <- markers.bimod_filtered
+for (i in 1:nrow(markers.bimod_filtered_cname)) {
+  if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+    markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                      1, 
+                                                      nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+      markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.bimod_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# negbinom
+markers.negbinom_filtered_cname <- markers.negbinom_filtered
+for (i in 1:nrow(markers.negbinom_filtered_cname)) {
+  if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+    markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                         1, 
+                                                         nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+      markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                           1, 
+                                                           nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.negbinom_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# poisson
+markers.poisson_filtered_cname <- markers.poisson_filtered
+for (i in 1:nrow(markers.poisson_filtered_cname)) {
+  if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+    markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+      markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                          1, 
+                                                          nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.poisson_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+# MAST
+markers.MAST_filtered_cname <- markers.MAST_filtered
+for (i in 1:nrow(markers.MAST_filtered_cname)) {
+  if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+    markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                     1, 
+                                                     nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+      markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                       1, 
+                                                       nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.MAST_filtered_cname$gene %in% genes) # shouls equal to # of rows 
+
+
+# Cluster 0
+markers.bimod_c0 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "0", ]
+markers.MAST_c0 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "0", ]
+markers.negbinom_c0 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "0", ]
+markers.poisson_c0 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "0", ]
+
+markers.intersect_c0 <- merge(markers.bimod_c0, markers.MAST_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.negbinom_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.poisson_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# Cluster 1
+markers.bimod_c1 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "1", ]
+markers.MAST_c1 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "1", ]
+markers.negbinom_c1 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "1", ]
+markers.poisson_c1 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "1", ]
+
+markers.intersect_c1 <- merge(markers.bimod_c1, markers.MAST_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.negbinom_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.poisson_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 2
+markers.bimod_c2 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "2", ]
+markers.MAST_c2 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "2", ]
+markers.negbinom_c2 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "2", ]
+markers.poisson_c2 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "2", ]
+
+markers.intersect_c2 <- merge(markers.bimod_c2, markers.MAST_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.negbinom_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.poisson_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 4
+markers.bimod_c4 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "4", ]
+markers.MAST_c4 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "4", ]
+markers.negbinom_c4 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "4", ]
+markers.poisson_c4 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "4", ]
+
+markers.intersect_c4 <- merge(markers.bimod_c4, markers.MAST_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.negbinom_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c4 <- merge(markers.intersect_c4, markers.poisson_c4, by="gene")
+colnames(markers.intersect_c4) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 5
+markers.bimod_c5 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "5", ]
+markers.MAST_c5 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "5", ]
+markers.negbinom_c5 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "5", ]
+markers.poisson_c5 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "5", ]
+
+markers.intersect_c5 <- merge(markers.bimod_c5, markers.MAST_c5, by="gene")
+colnames(markers.intersect_c5) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c5 <- merge(markers.intersect_c5, markers.negbinom_c5, by="gene")
+colnames(markers.intersect_c5) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c5 <- merge(markers.intersect_c5, markers.poisson_c5, by="gene")
+colnames(markers.intersect_c5) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 6
+markers.bimod_c6 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "6", ]
+markers.MAST_c6 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "6", ]
+markers.negbinom_c6 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "6", ]
+markers.poisson_c6 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "6", ]
+
+markers.intersect_c6 <- merge(markers.bimod_c6, markers.MAST_c6, by="gene")
+colnames(markers.intersect_c6) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c6 <- merge(markers.intersect_c6, markers.negbinom_c6, by="gene")
+colnames(markers.intersect_c6) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c6 <- merge(markers.intersect_c6, markers.poisson_c6, by="gene")
+colnames(markers.intersect_c6) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Export intersect gene list 
+write.csv(markers.intersect_c0, "Seurat/HBEpC_12hpi_dim1-9_cluster0_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c1, "Seurat/HBEpC_12hpi_dim1-9_cluster1_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c2, "Seurat/HBEpC_12hpi_dim1-9_cluster2_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c4, "Seurat/HBEpC_12hpi_dim1-9_cluster4_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c5, "Seurat/HBEpC_12hpi_dim1-9_cluster5_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c6, "Seurat/HBEpC_12hpi_dim1-9_cluster6_all-marker-genes_four-method-intersect.csv")
+
+```
+
+
+
+#### Visualize the viral read percentage for each cluster ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S7_HBEpC-12h.RData")
+s7_virus_data <- s7[(nrow(s7)-7):nrow(s7), ]
+cell.use <- colnames(HBEpC_12h@scale.data)
+colnames(s7_virus_data) <- paste("HBEpC_12h_", colnames(s7_virus_data), sep="")
+s7_virus_data.use <- s7_virus_data[, cell.use]
+s7_virus_data.use <- rbind(s7_virus_data.use, colSums(s7_virus_data.use))
+rownames(s7_virus_data.use)[9] <- "vsum"
+s7_data_csum <- as.data.frame(colSums(s7))
+rownames(s7_data_csum) <- paste("HBEpC_12h_", rownames(s7_data_csum), sep="")
+s7_data_csum$cells <- rownames(s7_data_csum)
+colnames(s7_data_csum)[1] <- "rsum"
+s7.use <- s7_data_csum[cell.use, ]
+s7_virus_data.use <- as.data.frame(t(s7_virus_data.use))
+s7_virus_data.use$cells <- rownames(s7_virus_data.use)
+s7_virus_data.use <- merge(s7_virus_data.use, s7.use, by="cells")
+s7_virus_data.use$vpercent <- s7_virus_data.use[, 10]*100/s7_virus_data.use[, 11]
+colnames(s7_virus_data.use)[1] <- "cell"
+s7_meta.data <- HBEpC_12h@meta.data
+s7_meta.data$cell <- rownames(s7_meta.data)
+s7_meta.data <- merge(s7_meta.data, s7_virus_data.use, by="cell")
+rownames(s7_meta.data) <- s7_meta.data$cell
+colnames(s7_meta.data)[20] <- "Viral_read_percentage"
+HBEpC_12h@meta.data <- s7_meta.data
+
+FeaturePlot(object=HBEpC_12h, features.plot=c("Viral_read_percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+# boxplot
+s7_validated_ident <- as.data.frame(HBEpC_12h@ident)
+colnames(s7_validated_ident) <- "validated_ident"
+s7_validated_ident$cell <- rownames(s7_validated_ident)
+s7_meta.data <- merge(s7_meta.data, s7_validated_ident, by="cell")
+rownames(s7_meta.data) <- s7_meta.data$cell
+s7_meta.data$validated_ident <- factor(s7_meta.data$validated_ident, levels=c(0,1,2,4,5,6))
+HBEpC_12h@meta.data <- s7_meta.data
+p <- ggplot(s7_meta.data, aes(validated_ident, Viral_read_percentage, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="Viral read percentages", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+## Test statistical significance
+kruskal.test(Viral_read_percentage ~ validated_ident, s7_meta.data) 
+vp_s7_c0vsc1 <- s7_meta.data[s7_meta.data$validated_ident == "0" | 
+                               s7_meta.data$validated_ident == "1", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c0vsc1) 
+vp_s7_c0vsc2 <- s7_meta.data[s7_meta.data$validated_ident == "0" | 
+                               s7_meta.data$validated_ident == "2", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c0vsc2,
+            alternative="less") 
+vp_s7_c0vsc4 <- s7_meta.data[s7_meta.data$validated_ident == "0" | 
+                               s7_meta.data$validated_ident == "4", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c0vsc4) 
+vp_s7_c0vsc5 <- s7_meta.data[s7_meta.data$validated_ident == "0" | 
+                               s7_meta.data$validated_ident == "5", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c0vsc5) 
+vp_s7_c0vsc6 <- s7_meta.data[s7_meta.data$validated_ident == "0" | 
+                               s7_meta.data$validated_ident == "6", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c0vsc6) 
+vp_s7_c1vsc2 <- s7_meta.data[s7_meta.data$validated_ident == "1" | 
+                               s7_meta.data$validated_ident == "2", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c1vsc2) 
+vp_s7_c1vsc4 <- s7_meta.data[s7_meta.data$validated_ident == "1" | 
+                               s7_meta.data$validated_ident == "4", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c1vsc4) 
+vp_s7_c1vsc5 <- s7_meta.data[s7_meta.data$validated_ident == "1" | 
+                               s7_meta.data$validated_ident == "5", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c1vsc5) 
+vp_s7_c1vsc6 <- s7_meta.data[s7_meta.data$validated_ident == "1" | 
+                               s7_meta.data$validated_ident == "6", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c1vsc6,
+            alternative="less") 
+vp_s7_c2vsc4 <- s7_meta.data[s7_meta.data$validated_ident == "2" | 
+                               s7_meta.data$validated_ident == "4", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c2vsc4,
+            alternative="greater") 
+vp_s7_c2vsc5 <- s7_meta.data[s7_meta.data$validated_ident == "2" | 
+                               s7_meta.data$validated_ident == "5", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c2vsc5,
+            alternative="greater") 
+vp_s7_c2vsc6 <- s7_meta.data[s7_meta.data$validated_ident == "2" | 
+                               s7_meta.data$validated_ident == "6", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c2vsc6) 
+vp_s7_c4vsc5 <- s7_meta.data[s7_meta.data$validated_ident == "4" | 
+                               s7_meta.data$validated_ident == "5", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c4vsc5) 
+vp_s7_c4vsc6 <- s7_meta.data[s7_meta.data$validated_ident == "4" | 
+                               s7_meta.data$validated_ident == "6", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c4vsc6,
+            alternative="less") 
+vp_s7_c5vsc6 <- s7_meta.data[s7_meta.data$validated_ident == "5" | 
+                               s7_meta.data$validated_ident == "6", ]
+wilcox.test(Viral_read_percentage ~ validated_ident, vp_s7_c5vsc6,
+            alternative="less") 
+
+```
+
+
+
+#### Visualize each viral segment percentage on tSNE ####
+```{r warning=FALSE, message=FALSE}
+s7_meta.data <- HBEpC_12h@meta.data
+s7_meta.data_vsegpercent <- s7_meta.data[, c("cell", "PB2", "PB1", "PA", "HA", "NP", "NA",
+                                             "M", "NS")]
+rownames(s7_meta.data_vsegpercent) <- s7_meta.data_vsegpercent$cell
+s7_meta.data_vsegpercent$cell <- NULL
+s7_meta.data_vsegpercent <- as.matrix(s7_meta.data_vsegpercent)
+s7_meta.data_vsegpercent <- as.data.frame(100*(s7_meta.data_vsegpercent/s7_meta.data$rsum))
+s7_meta.data_vsegpercent$cell <- rownames(s7_meta.data_vsegpercent)
+colnames(s7_meta.data_vsegpercent)[1:8] <- c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                             "HA percentage", "NP percentage", "NA percentage",
+                                             "M percentage", "NS percentage")
+s7_meta.data <- merge(s7_meta.data, s7_meta.data_vsegpercent, by="cell")
+rownames(s7_meta.data) <- s7_meta.data$cell
+s7_meta.data <- s7_meta.data[HBEpC_12h@cell.names, ]
+HBEpC_12h@meta.data <- s7_meta.data
+
+FeaturePlot(object=HBEpC_12h, features.plot=c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                              "HA percentage", "NP percentage", "NA percentage",
+                                              "M percentage", "NS percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+VlnPlot(HBEpC_12h, c("PB2 percentage", "PB1 percentage", "PA percentage",
+                     "HA percentage", "NP percentage", "NA percentage",
+                     "M percentage", "NS percentage"), 
+        nCol=3, point.size.use=0.05,
+        cols.use=c("slateblue", "gold1", "violet", "plum1", 
+                   "darkslategray4", "darkturquoise"))
+
+```
+
+
+
+#### Check the distribution of cell cycle in each cluster ####
+```{r warning=FALSE, message=FALSE}
+s7_meta.data <- HBEpC_12h@meta.data
+s7_phase_clusterID <- s7_meta.data[, c("Phase", "validated_ident")]
+s7_phase_clusterID_tb <- as.data.frame(100*prop.table(table(s7_phase_clusterID), margin=2))
+s7_phase_clusterID_tb$Phase <- factor(s7_phase_clusterID_tb$Phase,
+                                      levels=c("G1", "S", "G2M"))
+s7_phase_clusterID_tb$validated_ident <- factor(s7_phase_clusterID_tb$validated_ident,
+                                                levels=c(0,1,2,4,5,6))
+
+ggplot(s7_phase_clusterID_tb, aes(x=validated_ident, y=Freq, fill=Phase)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2")) +
+  labs(x="Cluster identity", y="Percentage of cells in each cell cycle stage",
+       fill="Phase") +
+  theme(text=element_text(size=15))
+
+```
+
+
+
+#### Save results ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+save(HBEpC_12h, 
+     markers.bimod, markers.bimod_filtered,
+     markers.MAST, markers.MAST_filtered,
+     markers.negbinom, markers.negbinom_filtered,
+     markers.poisson, markers.poisson_filtered,
+     file="HBEpC_12h_Seurat_clustering_results_resolution0.4_6clusters.RData")
+
+```
+
+
+
+###### HBEpC 24hpi ######
+```{r warning=FALSE, message=FALSE}
+set.seed(777)
+load("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/CellQC/HBEpC/HBEpC_Seurat_object_with-cell-cycle-effect_ready-as-input-for-individual-clustering.RData")
+setwd("/Users/changwang/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_24h/")
+
+```
+
+
+
+#### Clustering ####
+```{r warning=FALSE, message=FALSE}
+# Subset data from preprocessed Seurat object
+HBEpC_24h <- SubsetData(HBEpC_withcc, WhichCells(HBEpC_withcc, "24h"), do.scale=FALSE) # Because it already is scaled.
+HBEpC_24h 
+
+# Find variable gene with 4 < Average expression and Dispersion > 1
+HBEpC_24h <- FindVariableGenes(HBEpC_24h, 
+                               x.low.cutoff=0.1, x.high.cutoff=4, 
+                               y.cutoff=1, y.high.cutoff=Inf)
+length(HBEpC_24h@var.genes) 
+
+# Run a PCA using variable gene list
+HBEpC_24h <- RunPCA(HBEpC_24h, pc.genes=HBEpC_24h@var.genes, do.print=TRUE, pcs.print=1:10)
+# Visualize both cells and genes that define the PCA
+VizPCA(object=HBEpC_24h, pcs.use=1:2)
+PCAPlot(object=HBEpC_24h, dim.1=1, dim.2=2)
+PCHeatmap(HBEpC_24h, pc.use=1:12, cells.use=500, do.balanced=TRUE,
+          label.columns=FALSE, cexRow=0.5)
+
+# The jackStraw plot compares the distribution of P-values for each PC 
+# with a uniform distribution (dashed line).
+HBEpC_24h <- JackStraw(HBEpC_24h, num.replicate=100, do.print=FALSE)
+JackStrawPlot(HBEpC_24h, PCs=1:20) 
+
+# Check the PCElbowPlot for determining which PCs to use 
+# by looking at a plot of the standard deviations of the principle components 
+# and draw your cutoff where there is a clear elbow in the graph
+PCElbowPlot(object=HBEpC_24h)
+
+# Run tSNE using significant PCs as input (spectral tSNE)
+set.seed(777)
+HBEpC_24h <- RunTSNE(HBEpC_24h, max_iter=2000, dims.use=c(2:11), perplexity=50)
+TSNEPlot(HBEpC_24h, do.label=TRUE, label.size=6, pt.size=2)
+
+# Find cell clusters using Modularity optimization cluster detection.
+HBEpC_24h <- FindClusters(HBEpC_24h, dims.use=c(2:11), resolution=0.4, print.output=0)
+TSNEPlot(HBEpC_24h, do.label=TRUE, label.pt.size=1)
+
+# The validity of the clusters can be validated using a classification scheme 
+# based on linear SVMs. 
+HBEpC_24h <- BuildSNN(HBEpC_24h, dims.use=c(2:11), k.param=30)
+HBEpC_24h <- ValidateClusters(HBEpC_24h, pc.use=c(2:11), min.connectivity=0.001, 
+                              acc.cutoff=0.9)
+TSNEPlot(HBEpC_24h, do.label=TRUE, label.size=6, pt.size=2,
+         colors.use=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+HBEpC_24h@meta.data$Phase <- factor(HBEpC_24h@meta.data$Phase, 
+                                    levels=c("G1", "S", "G2M"))
+TSNEPlot(HBEpC_24h, do.label=FALSE, label.size=6, pt.size=2, group.by="Phase",
+         colors.use=c("goldenrod1", "mediumpurple", "skyblue2"))
+
+```
+
+
+
+#### Identification of markers for each cluster ####
+```{r warning=FALSE, message=FALSE}
+# Try default "bimod" (likelihood-ratio test)
+markers.bimod <- FindAllMarkers(HBEpC_24h, logfc.threshold=0.25, test.use="bimod", 
+                                min.pct=0.25)
+markers.bimod$gene <- rownames(markers.bimod)
+
+# Try 'negbinom' (negative-binomial) for UMI dataset
+markers.negbinom <- FindAllMarkers(HBEpC_24h, logfc.threshold=0.25, test.use="negbinom", 
+                                   min.pct=0.25)
+markers.negbinom$gene <- rownames(markers.negbinom)
+
+# Try 'poisson' (likelihood ratio test assuming an underlying poisson distribution) for UMI dataset
+markers.poisson <- FindAllMarkers(HBEpC_24h, logfc.threshold=0.25, test.use="poisson", 
+                                  min.pct=0.25)
+markers.poisson$gene <- rownames(markers.poisson)
+
+# Try 'MAST' 
+markers.MAST <- FindAllMarkers(HBEpC_24h, logfc.threshold=0.25, test.use="MAST", 
+                               min.pct=0.25)
+markers.MAST$gene <- rownames(markers.MAST)
+
+
+# For results from each test, only keep genes with adjusted p-value < 0.05, 
+markers.bimod_filtered <- markers.bimod[markers.bimod$p_val_adj < 0.05, ]
+markers.negbinom_filtered <- markers.negbinom[markers.negbinom$p_val_adj < 0.05, ]
+markers.poisson_filtered <- markers.poisson[markers.poisson$p_val_adj < 0.05, ]
+markers.MAST_filtered <- markers.MAST[markers.MAST$p_val_adj < 0.05, ]
+
+
+## Sort marker genes by logFC ##
+# Sort the marker gene list by the log2 FC (avg_logFC) within each cluster (positive ones on top)
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$avg_logFC, decreasing=TRUE), ]
+markers.bimod_filtered <- markers.bimod_filtered[order(markers.bimod_filtered$cluster), ]
+
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$avg_logFC, decreasing=TRUE), ]
+markers.negbinom_filtered <- markers.negbinom_filtered[order(markers.negbinom_filtered$cluster), ]
+
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$avg_logFC, decreasing=TRUE), ]
+markers.poisson_filtered <- markers.poisson_filtered[order(markers.poisson_filtered$cluster), ]
+
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$avg_logFC, decreasing=TRUE), ]
+markers.MAST_filtered <- markers.MAST_filtered[order(markers.MAST_filtered$cluster), ]
+
+```
+
+
+
+#### Extract marker genes (intersect from four methods) ####
+```{r warning=FALSE, message=FALSE, include=TRUE, eval=FALSE}
+genes <- rownames(HBEpC_24h@scale.data)
+# bimod
+markers.bimod_filtered_cname <- markers.bimod_filtered
+for (i in 1:nrow(markers.bimod_filtered_cname)) {
+  if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+    markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                      1, 
+                                                      nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    if (!markers.bimod_filtered_cname[i, "gene"] %in% genes) {
+      markers.bimod_filtered_cname[i, "gene"] <- substr(markers.bimod_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.bimod_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.bimod_filtered_cname$gene %in% genes) 
+
+# negbinom
+markers.negbinom_filtered_cname <- markers.negbinom_filtered
+for (i in 1:nrow(markers.negbinom_filtered_cname)) {
+  if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+    markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                         1, 
+                                                         nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    if (!markers.negbinom_filtered_cname[i, "gene"] %in% genes) {
+      markers.negbinom_filtered_cname[i, "gene"] <- substr(markers.negbinom_filtered_cname[i, "gene"],
+                                                           1, 
+                                                           nchar(markers.negbinom_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.negbinom_filtered_cname$gene %in% genes) 
+
+# poisson
+markers.poisson_filtered_cname <- markers.poisson_filtered
+for (i in 1:nrow(markers.poisson_filtered_cname)) {
+  if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+    markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                        1, 
+                                                        nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    if (!markers.poisson_filtered_cname[i, "gene"] %in% genes) {
+      markers.poisson_filtered_cname[i, "gene"] <- substr(markers.poisson_filtered_cname[i, "gene"],
+                                                          1, 
+                                                          nchar(markers.poisson_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.poisson_filtered_cname$gene %in% genes) 
+
+# MAST
+markers.MAST_filtered_cname <- markers.MAST_filtered
+for (i in 1:nrow(markers.MAST_filtered_cname)) {
+  if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+    markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                     1, 
+                                                     nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    if (!markers.MAST_filtered_cname[i, "gene"] %in% genes) {
+      markers.MAST_filtered_cname[i, "gene"] <- substr(markers.MAST_filtered_cname[i, "gene"],
+                                                       1, 
+                                                       nchar(markers.MAST_filtered_cname[i, "gene"])-1)
+    }
+  }
+}
+sum(markers.MAST_filtered_cname$gene %in% genes) 
+
+
+# Cluster 0
+markers.bimod_c0 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "0", ]
+markers.MAST_c0 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "0", ]
+markers.negbinom_c0 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "0", ]
+markers.poisson_c0 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "0", ]
+
+markers.intersect_c0 <- merge(markers.bimod_c0, markers.MAST_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.negbinom_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c0 <- merge(markers.intersect_c0, markers.poisson_c0, by="gene")
+colnames(markers.intersect_c0) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# Cluster 1
+markers.bimod_c1 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "1", ]
+markers.MAST_c1 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "1", ]
+markers.negbinom_c1 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "1", ]
+markers.poisson_c1 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "1", ]
+
+markers.intersect_c1 <- merge(markers.bimod_c1, markers.MAST_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.negbinom_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c1 <- merge(markers.intersect_c1, markers.poisson_c1, by="gene")
+colnames(markers.intersect_c1) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 2
+markers.bimod_c2 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "2", ]
+markers.MAST_c2 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "2", ]
+markers.negbinom_c2 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "2", ]
+markers.poisson_c2 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "2", ]
+
+markers.intersect_c2 <- merge(markers.bimod_c2, markers.MAST_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.negbinom_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c2 <- merge(markers.intersect_c2, markers.poisson_c2, by="gene")
+colnames(markers.intersect_c2) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+# CLuster 3
+markers.bimod_c3 <- markers.bimod_filtered_cname[markers.bimod_filtered_cname$cluster == "3", ]
+markers.MAST_c3 <- markers.MAST_filtered_cname[markers.MAST_filtered_cname$cluster == "3", ]
+markers.negbinom_c3 <- markers.negbinom_filtered_cname[markers.negbinom_filtered_cname$cluster == "3", ]
+markers.poisson_c3 <- markers.poisson_filtered_cname[markers.poisson_filtered_cname$cluster == "3", ]
+
+markers.intersect_c3 <- merge(markers.bimod_c3, markers.MAST_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.negbinom_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom")
+markers.intersect_c3 <- merge(markers.intersect_c3, markers.poisson_c3, by="gene")
+colnames(markers.intersect_c3) <- c("gene", "p_val_bimod", "ave_logFC_bimod", "pct.1_bimod",
+                                    "pct.2_bimod", "p_val_adj_bimod", "cluster_bimod", 
+                                    "p_val_MAST", "ave_logFC_MAST", "pct.1_MAST",
+                                    "pct.2_MAST", "p_val_adj_MAST", "cluster_MAST",
+                                    "p_val_negbinom", "ave_logFC_negbinom", "pct.1_negbinom",
+                                    "pct.2_negbinom", "p_val_adj_negbinom", "cluster_negbinom",
+                                    "p_val_poisson", "ave_logFC_poisson", "pct.1_poisson",
+                                    "pct.2_poisson", "p_val_adj_poisson", "cluster_poisson")
+
+```
+
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+# Export intersect gene list 
+write.csv(markers.intersect_c0, "Seurat/HBEpC_24hpi_dim2-11_cluster0_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c1, "Seurat/HBEpC_24hpi_dim2-11_cluster1_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c2, "Seurat/HBEpC_24hpi_dim2-11_cluster2_all-marker-genes_four-method-intersect.csv")
+write.csv(markers.intersect_c3, "Seurat/HBEpC_24hpi_dim2-11_cluster3_all-marker-genes_four-method-intersect.csv")
+
+```
+
+
+
+#### Visualize the viral read percentage for each cluster ####
+```{r warning=FALSE, message=FALSE}
+load("../CellQC/HBEpC/HBEpCALLsamples_QCed_gene-expression-matrix_S8_HBEpC-24h.RData")
+s8_virus_data <- s8[(nrow(s8)-7):nrow(s8), ]
+cell.use <- colnames(HBEpC_24h@scale.data)
+colnames(s8_virus_data) <- paste("HBEpC_24h_", colnames(s8_virus_data), sep="")
+s8_virus_data.use <- s8_virus_data[, cell.use]
+s8_virus_data.use <- rbind(s8_virus_data.use, colSums(s8_virus_data.use))
+rownames(s8_virus_data.use)[9] <- "vsum"
+s8_data_csum <- as.data.frame(colSums(s8))
+rownames(s8_data_csum) <- paste("HBEpC_24h_", rownames(s8_data_csum), sep="")
+s8_data_csum$cells <- rownames(s8_data_csum)
+colnames(s8_data_csum)[1] <- "rsum"
+s8.use <- s8_data_csum[cell.use, ]
+s8_virus_data.use <- as.data.frame(t(s8_virus_data.use))
+s8_virus_data.use$cells <- rownames(s8_virus_data.use)
+s8_virus_data.use <- merge(s8_virus_data.use, s8.use, by="cells")
+s8_virus_data.use$vpercent <- s8_virus_data.use[, 10]*100/s8_virus_data.use[, 11]
+colnames(s8_virus_data.use)[1] <- "cell"
+s8_meta.data <- HBEpC_24h@meta.data
+s8_meta.data$cell <- rownames(s8_meta.data)
+s8_meta.data <- merge(s8_meta.data, s8_virus_data.use, by="cell")
+rownames(s8_meta.data) <- s8_meta.data$cell
+colnames(s8_meta.data)[20] <- "Viral_read_percentage"
+HBEpC_24h@meta.data <- s8_meta.data
+
+FeaturePlot(object=HBEpC_24h, features.plot=c("Viral_read_percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+# boxplot
+s8_meta.data$res.0.4 <- factor(s8_meta.data$res.0.4, levels=c(0,1,2,3))
+p <- ggplot(s8_meta.data, aes(res.0.4, Viral_read_percentage, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="Viral read percentages", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+
+## Test the viral reads percentages among clusters are significantly different from each other
+kruskal.test(Viral_read_percentage ~ res.0.4, s8_meta.data) 
+vp_s8_c0vsc1 <- s8_meta.data[s8_meta.data$res.0.4 == "0" | 
+                               s8_meta.data$res.0.4 == "1", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c0vsc1) 
+vp_s8_c0vsc2 <- s8_meta.data[s8_meta.data$res.0.4 == "0" | 
+                               s8_meta.data$res.0.4 == "2", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c0vsc2) 
+vp_s8_c0vsc3 <- s8_meta.data[s8_meta.data$res.0.4 == "0" | 
+                               s8_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c0vsc3,
+            alternative="less") 
+vp_s8_c1vsc2 <- s8_meta.data[s8_meta.data$res.0.4 == "1" | 
+                               s8_meta.data$res.0.4 == "2", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c1vsc2) 
+vp_s8_c1vsc3 <- s8_meta.data[s8_meta.data$res.0.4 == "1" | 
+                               s8_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c1vsc3,
+            alternative="less") 
+vp_s8_c2vsc3 <- s8_meta.data[s8_meta.data$res.0.4 == "2" | 
+                               s8_meta.data$res.0.4 == "3", ]
+wilcox.test(Viral_read_percentage ~ res.0.4, vp_s8_c2vsc3,
+            alternative="less") 
+
+```
+
+
+
+#### Visualize each viral segment percentage on tSNE ####
+```{r warning=FALSE, message=FALSE}
+s8_meta.data <- HBEpC_24h@meta.data
+s8_meta.data_vsegpercent <- s8_meta.data[, c("cell", "PB2", "PB1", "PA", "HA", "NP", "NA",
+                                             "M", "NS")]
+rownames(s8_meta.data_vsegpercent) <- s8_meta.data_vsegpercent$cell
+s8_meta.data_vsegpercent$cell <- NULL
+s8_meta.data_vsegpercent <- as.matrix(s8_meta.data_vsegpercent)
+s8_meta.data_vsegpercent <- as.data.frame(100*(s8_meta.data_vsegpercent/s8_meta.data$rsum))
+s8_meta.data_vsegpercent$cell <- rownames(s8_meta.data_vsegpercent)
+colnames(s8_meta.data_vsegpercent)[1:8] <- c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                             "HA percentage", "NP percentage", "NA percentage",
+                                             "M percentage", "NS percentage")
+s8_meta.data <- merge(s8_meta.data, s8_meta.data_vsegpercent, by="cell")
+rownames(s8_meta.data) <- s8_meta.data$cell
+s8_meta.data <- s8_meta.data[HBEpC_24h@cell.names, ]
+HBEpC_24h@meta.data <- s8_meta.data
+
+FeaturePlot(object=HBEpC_24h, features.plot=c("PB2 percentage", "PB1 percentage", "PA percentage",
+                                              "HA percentage", "NP percentage", "NA percentage",
+                                              "M percentage", "NS percentage"), 
+            cols.use=c("grey", "blue"), 
+            reduction.use="tsne", no.legend=FALSE, pt.size=2)
+
+VlnPlot(HBEpC_24h, c("PB2 percentage", "PB1 percentage", "PA percentage",
+                     "HA percentage", "NP percentage", "NA percentage",
+                     "M percentage", "NS percentage"), 
+        nCol=3, point.size.use=0.05, 
+        cols.use=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+```
+
+
+
+#### Check the distribution of cell cycle in each cluster ####
+```{r warning=FALSE, message=FALSE}
+s8_meta.data <- HBEpC_24h@meta.data
+s8_phase_clusterID <- s8_meta.data[, c("Phase", "res.0.4")]
+s8_phase_clusterID_tb <- as.data.frame(100*prop.table(table(s8_phase_clusterID), margin=2))
+s8_phase_clusterID_tb$Phase <- factor(s8_phase_clusterID_tb$Phase,
+                                      levels=c("G1", "S", "G2M"))
+s8_phase_clusterID_tb$res.0.4 <- factor(s8_phase_clusterID_tb$res.0.4,
+                                        levels=c(0,1,2,3))
+
+ggplot(s8_phase_clusterID_tb, aes(x=res.0.4, y=Freq, fill=Phase)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("goldenrod1", "mediumpurple", "skyblue2")) +
+  labs(x="Cluster identity", y="Percentage of cells in each cell cycle stage",
+       fill="Phase") +
+  theme(text=element_text(size=15))
+
+```
+
+
+
+#### GO term visualization ####
+```{r warning=FALSE, message=FALSE}
+setwd("~/Documents/10XGenomics_BulkRNAseq_qPCR_2017Fall/10X_data_July2018_v2/HBEpC_24h/Seurat")
+
+GO <- read.csv("HBEpC_24h_DAVID_BP_Direct_Top10-4clusters_summary.csv")
+GO$Cluster <- factor(GO$Cluster, levels=c("0", "1", "2", "3"))
+GO$Term <- factor(GO$Term, levels=rev(unique(as.character(GO$Term))))
+
+GO_2 <- read.csv("HBEpC_24h_cluster2_other-GO-terms.csv")
+GO_2$Cluster <- factor(GO_2$Cluster)
+GO_2$Term <- factor(GO_2$Term, levels=rev(unique(as.character(GO_2$Term))))
+
+# Combine plots
+GO$plot <- rep("upper", nrow(GO))
+GO_2$plot <- rep("lower", nrow(GO_2))
+GO_new <- rbind(GO, GO_2)
+GO_new$plot <- factor(GO_new$plot, levels=c("upper", "lower"))
+ggplot(GO_new, aes(x=Cluster, y=Term, size=Gene_ratio, colour=Fold_enrichment)) +
+  geom_point(aes(colour=cut(Fold_enrichment, c(3, 5, 10, 20, 25)))) +
+  facet_grid(plot~., scale="free_y", space="free") +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        strip.background=element_blank(),
+        strip.text=element_blank()) +
+  labs(x="Cluster", y="GO biological process", color="Fold enrichment", size="Gene ratio") +
+  scale_colour_manual(values=c("(3,5]"="#71cddd", "(5,10]"="#00b6cb", 
+                               "(10,20]"="#12a3b4", "(20,25]"="#188291"),
+                      labels=c("3-5", "5-10", "10-20", "20-25"))
+
+
+## Plot the distribution (median) of the relative abundance of viral transcripts in each cluster
+load("../HBEpC_24h_Seurat_clustering_results_resolution.0.4_4clusters.RData")
+HBEpC_24h_metadata <- HBEpC_24h@meta.data
+c0_median <- median(HBEpC_24h_metadata[HBEpC_24h_metadata$res.0.4 == "0", "Viral_read_percentage"])
+c1_median <- median(HBEpC_24h_metadata[HBEpC_24h_metadata$res.0.4 == "1", "Viral_read_percentage"])
+c2_median <- median(HBEpC_24h_metadata[HBEpC_24h_metadata$res.0.4 == "2", "Viral_read_percentage"])
+c3_median <- median(HBEpC_24h_metadata[HBEpC_24h_metadata$res.0.4 == "3", "Viral_read_percentage"])
+
+HBEpC_24h_vmedian <- data.frame("Clusters"=factor(c(0, 1, 2, 3), levels=c(0, 1, 2, 3)),
+                                "Median"=c(c0_median, c1_median, c2_median, c3_median))
+ggplot(HBEpC_24h_vmedian, aes(x=Clusters, y=Median, fill=Clusters)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral")) +
+  scale_y_continuous(breaks=seq(0, 30, 5), limits=c(0, 30)) +
+  theme(text=element_text(size=15),
+        panel.background=element_rect(fill="white", color="grey50"),
+        panel.grid.major=element_line(color="grey90"),
+        legend.position="none") +
+  labs(y="Median relative abundance \n of viral transcripts", x="Clusters")
+
+
+## Heatmap ##
+# t1: type I interferon signaling pathway
+c2_t1 <- c("BST2", "RSAD2", "SAMHD1", "OAS1", "OAS2", "STAT1", "IFI35", "STAT2", "ISG20", "IFI27", "ISG15", "IRF6", "XAF1", "MX1", "MX2", "ADAR")
+
+DoHeatmap(HBEpC_24h, genes.use=c(c2_t1), 
+          remove.key=FALSE, slim.col.label=TRUE, cex.row=8, cex.col=15, rotate.key=TRUE,
+          col.low="skyblue4", col.high="gold", col.mid="skyblue")
+
+```
+
+
+
+#### Save results ####
+```{r warning=FALSE, message=FALSE, include=FALSE, eval=FALSE}
+save(HBEpC_24h, 
+     markers.bimod, markers.bimod_filtered,
+     markers.MAST, markers.MAST_filtered,
+     markers.negbinom, markers.negbinom_filtered,
+     markers.poisson, markers.poisson_filtered,
+     file="HBEpC_24h_Seurat_clustering_results_resolution.0.4_4clusters.RData")
+
+```
+
+
+
+#### Visualize DI ratios in each cluster ####
+#### HBEpC 6hpi ####
+#### Visualize DI ratios ####
+```{r warning=FALSE, message=FALSE}
+# Visualize DI ratio distribution for each cluster
+DI_ratio_all <- read.csv("HBEpC_6h/HBEpC_6h_polymerases_DI-ratio_adj.csv", row.names=1)
+DI_ratio_all <- DI_ratio_all[, c(1, 14:16)]
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+DI_ratio_all$cell <- paste("HBEpC_6h_", rownames(DI_ratio_all), sep="")
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+
+load("HBEpC_6h/HBEpC_6h_Seurat_clustering_results_resolution0.4_5clusters.RData")
+s6_meta.data <- HBEpC_6h@meta.data
+s6_meta.data <- merge(s6_meta.data, DI_ratio_all, by="cell", all=TRUE)
+rownames(s6_meta.data) <- s6_meta.data$cell
+s6_meta.data$PB2_DI_ratio_3p[is.na(s6_meta.data$PB2_DI_ratio_3p)] <- 0
+s6_meta.data$PB1_DI_ratio_3p[is.na(s6_meta.data$PB1_DI_ratio_3p)] <- 0
+s6_meta.data$PA_DI_ratio_3p[is.na(s6_meta.data$PA_DI_ratio_3p)] <- 0
+s6_meta.data$PB2_DI_ratio_3p[is.infinite(s6_meta.data$PB2_DI_ratio_3p)] <- 0
+s6_meta.data$PB1_DI_ratio_3p[is.infinite(s6_meta.data$PB1_DI_ratio_3p)] <- 0
+s6_meta.data$PA_DI_ratio_3p[is.infinite(s6_meta.data$PA_DI_ratio_3p)] <- 0
+HBEpC_6h@meta.data <- s6_meta.data
+write.csv(s6_meta.data, file="HBEpC_6h/HBEpC_6h_metadata.csv")
+
+
+# PB2
+p <- ggplot(s6_meta.data, aes(res.0.4, PB2_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 4, 0.5), limits=c(-0.01, 4)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+
+# PB1
+p <- ggplot(s6_meta.data, aes(res.0.4, PB1_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB1 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 4, 0.5), limits=c(-0.01, 4)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+
+# PA
+p <- ggplot(s6_meta.data, aes(res.0.4, PA_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PA DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 2, 0.5), limits=c(-0.01, 2)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#F0BF30", "#C568A2", "#6D967d", "#E1CDEB", "#2B362A"))
+
+
+## Test the DI ratio for each polymerase segs among clusters are significantly different from each other
+# PB2
+s6_meta.data$res.0.4 <- factor(s6_meta.data$res.0.4, levels=c("0", "1", "2", "3", "4"))
+kruskal.test(PB2_DI_ratio_3p ~ res.0.4, s6_meta.data) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 0, "PB2_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 0, "PB2_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 1, "PB2_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 1, "PB2_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 2, "PB2_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 2, "PB2_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 3, "PB2_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 3, "PB2_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 4, "PB2_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 4, "PB2_DI_ratio_3p"]) 
+
+# PB1
+kruskal.test(PB1_DI_ratio_3p ~ res.0.4, s6_meta.data) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 0, "PB1_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 0, "PB1_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 1, "PB1_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 1, "PB1_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 2, "PB1_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 2, "PB1_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 3, "PB1_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 3, "PB1_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 4, "PB1_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 4, "PB1_DI_ratio_3p"]) 
+
+# PA
+kruskal.test(PA_DI_ratio_3p ~ res.0.4, s6_meta.data) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 0, "PA_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 0, "PA_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 1, "PA_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 1, "PA_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 2, "PA_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 2, "PA_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 3, "PA_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 3, "PA_DI_ratio_3p"]) 
+wilcox.test(s6_meta.data[s6_meta.data$res.0.4 == 4, "PA_DI_ratio_3p"],
+            s6_meta.data[s6_meta.data$res.0.4 != 4, "PA_DI_ratio_3p"]) 
+
+```
+
+
+
+#### HBEpC 12hpi ####
+#### Visualize DI ratios ####
+```{r warning=FALSE, message=FALSE}
+# Visualize DI ratio distribution for each cluster
+DI_ratio_all <- read.csv("HBEpC_12h/HBEpC_12h_polymerases_DI-ratio.csv", row.names=1)
+DI_ratio_all <- DI_ratio_all[, c(1, 11:16)]
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+DI_ratio_all$cell <- paste("HBEpC_12h_", rownames(DI_ratio_all), sep="")
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+
+load("HBEpC_12h/HBEpC_12h_Seurat_clustering_results_resolution0.4_6clusters.RData")
+s7_meta.data <- HBEpC_12h@meta.data
+s7_meta.data <- merge(s7_meta.data, DI_ratio_all, by="cell")
+rownames(s7_meta.data) <- s7_meta.data$cell
+HBEpC_12h@meta.data <- s7_meta.data
+write.csv(s7_meta.data, file="HBEpC_12h/HBEpC_12h_metadata.csv")
+
+# PB2
+s7_meta.data$validated_ident <- factor(s7_meta.data$validated_ident, levels=c(0, 1, 2, 4, 5, 6))
+p <- ggplot(s7_meta.data, aes(validated_ident, PB2_DI_ratio_3p, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 2, 0.5), limits=c(-0.01, 2)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+# PB1
+p <- ggplot(s7_meta.data, aes(validated_ident, PB1_DI_ratio_3p, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB1 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 4, 0.5), limits=c(-0.01, 4)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+# PA
+p <- ggplot(s7_meta.data, aes(validated_ident, PA_DI_ratio_3p, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PA DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.5)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+
+## Test the DI ratio for each polymerase segs among clusters are significantly different from each other
+# PB2
+kruskal.test(PB2_DI_ratio_3p ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "PB2_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "PB2_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "PB2_DI_ratio_3p"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "PB2_DI_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "PB2_DI_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "PB2_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "PB2_DI_ratio_3p"], alternative="greater") 
+
+# PB1
+kruskal.test(PB1_DI_ratio_3p ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "PB1_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "PB1_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "PB1_DI_ratio_3p"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "PB1_DI_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "PB1_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "PB1_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "PB1_DI_ratio_3p"], alternative="greater") 
+
+# PA
+kruskal.test(PA_DI_ratio_3p ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "PA_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "PA_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "PA_DI_ratio_3p"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "PA_DI_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "PA_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "PA_DI_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "PA_DI_ratio_3p"], alternative="greater") 
+
+
+
+#### Separately plot DI162 and DI222 ####
+HBEpC_12h_metadata <- HBEpC_12h@meta.data
+HBEpC_12h_DI_info <- read.csv("HBEpC_12h/HBEpC_12h_polymerases_DI-ratio.csv", row.names=1)
+HBEpC_12h_DI_info$cell <- paste("HBEpC_12h_", HBEpC_12h_DI_info$cell, sep="")
+HBEpC_12h_metadata <- merge(HBEpC_12h_metadata[, 1:29], HBEpC_12h_DI_info, by="cell")
+rownames(HBEpC_12h_metadata) <- HBEpC_12h_metadata$cell
+s7_meta.data <- HBEpC_12h_metadata
+
+boundary_criteria <- read.csv("DIP_boundary_10X-bulk-stock/after-filter/Filtered_Grouped_DI_boundaries_HBEpC_12h.csv")
+load("DIP_boundary_10X-bulk-stock/before-filter/sc_HBEpC_12h_PB2_boundaries.RData")
+
+# Filter the single cell data
+PB2_boundary_comb <- HBEpC_12h_sc_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+
+# DI162 DI ratio in each cell
+DI162 <- "161-164^2004-2007"
+DI162_subset <- PB2_boundary_comb_filtered[
+  PB2_boundary_comb_filtered$grouped_boundary_comb == DI162, ]
+DI162_subset$grouped_boundary_comb <- as.character(DI162_subset$grouped_boundary_comb)
+DI162_subset_freqtb <- as.data.frame(table(DI162_subset[, c("cell", "grouped_boundary_comb")]))
+DI162_subset_freqtb_nonzero <- DI162_subset_freqtb[DI162_subset_freqtb$Freq > 0, ] 
+DI162_subset_freqtb_nonzero$cell <- as.character(DI162_subset_freqtb_nonzero$cell)
+DI162_subset_freqtb_nonzero$cell <- paste("HBEpC_12h_", DI162_subset_freqtb_nonzero$cell, sep="")
+colnames(DI162_subset_freqtb_nonzero) <- c("cell", "grouped_boundary_comb", "DI162_counts") 
+DI162_subset_freqtb_nonzero <- DI162_subset_freqtb_nonzero[, c(1,3)]
+
+# DI222 DI ratio in each cell
+DI222 <- "219-225^2133-2139"
+DI222_subset <- PB2_boundary_comb_filtered[
+  PB2_boundary_comb_filtered$grouped_boundary_comb == DI222, ]
+DI222_subset$grouped_boundary_comb <- as.character(DI222_subset$grouped_boundary_comb)
+DI222_subset_freqtb <- as.data.frame(table(DI222_subset[, c("cell", "grouped_boundary_comb")]))
+DI222_subset_freqtb_nonzero <- DI222_subset_freqtb[DI222_subset_freqtb$Freq > 0, ] 
+DI222_subset_freqtb_nonzero$cell <- as.character(DI222_subset_freqtb_nonzero$cell)
+DI222_subset_freqtb_nonzero$cell <- paste("HBEpC_12h_", DI222_subset_freqtb_nonzero$cell, sep="")
+colnames(DI222_subset_freqtb_nonzero) <- c("cell", "grouped_boundary_comb", "DI222_counts") 
+DI222_subset_freqtb_nonzero <- DI222_subset_freqtb_nonzero[, c(1,3)]
+
+DI162_DI222 <- merge(DI162_subset_freqtb_nonzero, DI222_subset_freqtb_nonzero, by="cell", all=TRUE)
+DI162_DI222$DI162_counts[is.na(DI162_DI222$DI162_counts)] <- 0
+DI162_DI222$DI222_counts[is.na(DI162_DI222$DI222_counts)] <- 0
+DI162_DI222 <- DI162_DI222[DI162_DI222$cell %in% HBEpC_12h_metadata$cell, ]
+
+HBEpC_12h_metadata <- merge(HBEpC_12h_metadata, DI162_DI222, by="cell")
+HBEpC_12h_metadata$DI162_ratio_total <- HBEpC_12h_metadata$DI162_counts / HBEpC_12h_metadata$PB2_seg_count
+HBEpC_12h_metadata$DI162_ratio_3p <- HBEpC_12h_metadata$DI162_counts / HBEpC_12h_metadata$PB2_peak_count
+HBEpC_12h_metadata$DI222_ratio_total <- HBEpC_12h_metadata$DI222_counts / HBEpC_12h_metadata$PB2_seg_count
+HBEpC_12h_metadata$DI222_ratio_3p <- HBEpC_12h_metadata$DI222_counts / HBEpC_12h_metadata$PB2_peak_count
+
+s7_meta.data <- HBEpC_12h_metadata
+s7_meta.data$DI162_ratio_total <- s7_meta.data$DI162_ratio_total * 100
+s7_meta.data$DI222_ratio_total <- s7_meta.data$DI222_ratio_total * 100
+
+p <- ggplot(s7_meta.data, aes(validated_ident, DI162_ratio_total, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI162 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(0, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+p <- ggplot(s7_meta.data, aes(validated_ident, DI222_ratio_total, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI162 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(-0.01, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+p <- ggplot(s7_meta.data, aes(validated_ident, DI162_ratio_3p, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI222 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.6)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+p <- ggplot(s7_meta.data, aes(validated_ident, DI222_ratio_3p, color=factor(x=validated_ident)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI222 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.6)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("slateblue", "gold1", "violet", "plum1", 
+                              "darkslategray4", "darkturquoise"))
+
+
+# test stats significance
+s7_meta.data$validated_ident <- factor(s7_meta.data$validated_ident, levels=c(0, 1, 2, 4, 5, 6))
+# DI162
+# normed 2 total 
+kruskal.test(DI162_ratio_total ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "DI162_ratio_total"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "DI162_ratio_total"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "DI162_ratio_total"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "DI162_ratio_total"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "DI162_ratio_total"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "DI162_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "DI162_ratio_total"], alternative="greater") 
+
+# normed 2 3peak
+kruskal.test(DI162_ratio_3p ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "DI162_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "DI162_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "DI162_ratio_3p"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "DI162_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "DI162_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "DI162_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "DI162_ratio_3p"], alternative="greater") 
+
+# DI222
+# normed 2 total 
+kruskal.test(DI222_ratio_total ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "DI222_ratio_total"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "DI222_ratio_total"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "DI222_ratio_total"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "DI222_ratio_total"]) 
+
+# normed 2 3p 
+kruskal.test(DI222_ratio_3p ~ validated_ident, s7_meta.data) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 0, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 0, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 1, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 1, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 2, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 2, "DI222_ratio_3p"], alternative="less") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 4, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 4, "DI222_ratio_3p"]) 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 5, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 5, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s7_meta.data[s7_meta.data$validated_ident == 6, "DI222_ratio_3p"],
+            s7_meta.data[s7_meta.data$validated_ident != 6, "DI222_ratio_3p"]) 
+
+```
+
+
+
+#### HBEpC 24hpi ####
+#### Visualize DI ratios ####
+```{r warning=FALSE, message=FALSE}
+# Visualize DI ratio distribution for each cluster
+DI_ratio_all <- read.csv("HBEpC_24h/HBEpC_24h_polymerases_DI-ratio.csv", row.names=1)
+DI_ratio_all <- DI_ratio_all[, c(1, 11:16)]
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+DI_ratio_all$cell <- paste("HBEpC_24h_", rownames(DI_ratio_all), sep="")
+rownames(DI_ratio_all) <- DI_ratio_all$cell
+
+load("HBEpC_24h/HBEpC_24h_Seurat_clustering_results_resolution.0.4_4clusters.RData")
+s8_meta.data <- HBEpC_24h@meta.data
+s8_meta.data <- merge(s8_meta.data, DI_ratio_all, by="cell")
+rownames(s8_meta.data) <- s8_meta.data$cell
+HBEpC_24h@meta.data <- s8_meta.data
+write.csv(s8_meta.data, file="HBEpC_24h/HBEpC_24h_metadata.csv")
+
+
+# PB2
+p <- ggplot(s8_meta.data, aes(res.0.4, PB2_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 2, 0.5), limits=c(-0.01, 2)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+# PB1
+p <- ggplot(s8_meta.data, aes(res.0.4, PB1_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB1 DI ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.5)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+# PA
+p <- ggplot(s8_meta.data, aes(res.0.4, PA_DI_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PA DI ratios", color="Clusters") +
+  #  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.5)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+s8_meta.data$res.0.4 <- factor(s8_meta.data$res.0.4, levels=c("0", "1", "2", "3"))
+
+## Test the DI ratio for each polymerase segs among clusters are significantly different from each other
+# PB2
+kruskal.test(PB2_DI_ratio_3p ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "PB2_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "PB2_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "PB2_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "PB2_DI_ratio_3p"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "PB2_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "PB2_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "PB2_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "PB2_DI_ratio_3p"], alternative="less") 
+
+# PB1
+kruskal.test(PB1_DI_ratio_3p ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "PB1_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "PB1_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "PB1_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "PB1_DI_ratio_3p"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "PB1_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "PB1_DI_ratio_3p"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "PB1_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "PB1_DI_ratio_3p"], alternative="less") 
+
+# PA
+kruskal.test(PA_DI_ratio_3p ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "PA_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "PA_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "PA_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "PA_DI_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "PA_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "PA_DI_ratio_3p"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "PA_DI_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "PA_DI_ratio_3p"], alternative="less") 
+
+
+
+#### Separately plot DI162 and DI222 ####
+HBEpC_24h_metadata <- HBEpC_24h@meta.data
+HBEpC_24h_DI_info <- read.csv("HBEpC_24h/HBEpC_24h_polymerases_DI-ratio.csv", row.names=1)
+HBEpC_24h_DI_info$cell <- paste("HBEpC_24h_", HBEpC_24h_DI_info$cell, sep="")
+HBEpC_24h_metadata <- merge(HBEpC_24h_metadata[, 1:28], HBEpC_24h_DI_info, by="cell")
+rownames(HBEpC_24h_metadata) <- HBEpC_24h_metadata$cell
+s8_meta.data <- HBEpC_24h_metadata
+
+boundary_criteria <- read.csv("DIP_boundary_10X-bulk-stock/after-filter/Filtered_Grouped_DI_boundaries_HBEpC_24h.csv")
+load("DIP_boundary_10X-bulk-stock/before-filter/sc_HBEpC_24h_PB2_boundaries.RData")
+
+# Filter the single cell data
+PB2_boundary_comb <- HBEpC_24h_sc_PB2_boundary_df
+PB2_boundary_comb$boundary_comb <- paste(PB2_boundary_comb$start, 
+                                         PB2_boundary_comb$stop, sep="^")
+PB2_boundary_comb_filtered <- merge(PB2_boundary_comb, 
+                                    boundary_criteria[boundary_criteria$seg == "PB2", ])
+
+# DI162 DI ratio in each cell
+DI162 <- "161-164^2004-2007"
+DI162_subset <- PB2_boundary_comb_filtered[
+  PB2_boundary_comb_filtered$grouped_boundary_comb == DI162, ]
+DI162_subset$grouped_boundary_comb <- as.character(DI162_subset$grouped_boundary_comb)
+DI162_subset_freqtb <- as.data.frame(table(DI162_subset[, c("cell", "grouped_boundary_comb")]))
+DI162_subset_freqtb_nonzero <- DI162_subset_freqtb[DI162_subset_freqtb$Freq > 0, ] 
+DI162_subset_freqtb_nonzero$cell <- as.character(DI162_subset_freqtb_nonzero$cell)
+DI162_subset_freqtb_nonzero$cell <- paste("HBEpC_24h_", DI162_subset_freqtb_nonzero$cell, sep="")
+colnames(DI162_subset_freqtb_nonzero) <- c("cell", "grouped_boundary_comb", "DI162_counts") 
+DI162_subset_freqtb_nonzero <- DI162_subset_freqtb_nonzero[, c(1,3)]
+
+# DI222 DI ratio in each cell
+DI222 <- "219-225^2133-2139"
+DI222_subset <- PB2_boundary_comb_filtered[
+  PB2_boundary_comb_filtered$grouped_boundary_comb == DI222, ]
+DI222_subset$grouped_boundary_comb <- as.character(DI222_subset$grouped_boundary_comb)
+DI222_subset_freqtb <- as.data.frame(table(DI222_subset[, c("cell", "grouped_boundary_comb")]))
+DI222_subset_freqtb_nonzero <- DI222_subset_freqtb[DI222_subset_freqtb$Freq > 0, ] 
+DI222_subset_freqtb_nonzero$cell <- as.character(DI222_subset_freqtb_nonzero$cell)
+DI222_subset_freqtb_nonzero$cell <- paste("HBEpC_24h_", DI222_subset_freqtb_nonzero$cell, sep="")
+colnames(DI222_subset_freqtb_nonzero) <- c("cell", "grouped_boundary_comb", "DI222_counts") 
+DI222_subset_freqtb_nonzero <- DI222_subset_freqtb_nonzero[, c(1,3)]
+
+DI162_DI222 <- merge(DI162_subset_freqtb_nonzero, DI222_subset_freqtb_nonzero, by="cell", all=TRUE)
+DI162_DI222$DI162_counts[is.na(DI162_DI222$DI162_counts)] <- 0
+DI162_DI222$DI222_counts[is.na(DI162_DI222$DI222_counts)] <- 0
+DI162_DI222 <- DI162_DI222[DI162_DI222$cell %in% HBEpC_24h_metadata$cell, ]
+
+HBEpC_24h_metadata <- merge(HBEpC_24h_metadata, DI162_DI222, by="cell")
+HBEpC_24h_metadata$DI162_ratio_total <- HBEpC_24h_metadata$DI162_counts / HBEpC_24h_metadata$PB2_seg_count
+HBEpC_24h_metadata$DI162_ratio_3p <- HBEpC_24h_metadata$DI162_counts / HBEpC_24h_metadata$PB2_peak_count
+HBEpC_24h_metadata$DI222_ratio_total <- HBEpC_24h_metadata$DI222_counts / HBEpC_24h_metadata$PB2_seg_count
+HBEpC_24h_metadata$DI222_ratio_3p <- HBEpC_24h_metadata$DI222_counts / HBEpC_24h_metadata$PB2_peak_count
+
+s8_meta.data <- HBEpC_24h_metadata
+s8_meta.data$DI162_ratio_total <- s8_meta.data$DI162_ratio_total * 100
+s8_meta.data$DI222_ratio_total <- s8_meta.data$DI222_ratio_total * 100
+
+p <- ggplot(s8_meta.data, aes(res.0.4, DI162_ratio_total, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI162 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(-0.01, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+p <- ggplot(s8_meta.data, aes(res.0.4, DI222_ratio_total, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI222 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 80, 10), limits=c(-0.01, 80)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+p <- ggplot(s8_meta.data, aes(res.0.4, DI162_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI162 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.6)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+p <- ggplot(s8_meta.data, aes(res.0.4, DI222_ratio_3p, color=factor(x=res.0.4)))
+p + geom_boxplot() + 
+  geom_jitter(width=0.2, size=0.5) +
+  labs(x="Clusters", y="PB2 DI222 ratios", color="Clusters") +
+  scale_y_continuous(breaks=seq(0, 1.5, 0.5), limits=c(-0.01, 1.6)) +
+  theme(text=element_text(size=15)) +
+  scale_color_manual(values=c("#90AA3C", "#79CEDC", "#FCD42B", "coral"))
+
+
+# test stats significance
+s8_meta.data$res.0.4 <- factor(s8_meta.data$res.0.4, levels=c(0, 1, 2, 3))
+# DI162
+# normed 2 total 
+kruskal.test(DI162_ratio_total ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "DI162_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "DI162_ratio_total"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "DI162_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "DI162_ratio_total"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "DI162_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "DI162_ratio_total"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "DI162_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "DI162_ratio_total"], alternative="less") 
+
+# normed 2 3peak
+kruskal.test(DI162_ratio_3p ~ res.0.4, s8_meta.data)
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "DI162_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "DI162_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "DI162_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "DI162_ratio_3p"]) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "DI162_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "DI162_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "DI162_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "DI162_ratio_3p"], alternative="less") 
+
+
+# DI222
+# normed 2 total 
+kruskal.test(DI222_ratio_total ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "DI222_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "DI222_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "DI222_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "DI222_ratio_total"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "DI222_ratio_total"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "DI222_ratio_total"], alternative="less") 
+
+# normed 2 3p 
+kruskal.test(DI222_ratio_3p ~ res.0.4, s8_meta.data) 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 0, "DI222_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 0, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 1, "DI222_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 1, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 2, "DI222_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 2, "DI222_ratio_3p"], alternative="greater") 
+wilcox.test(s8_meta.data[s8_meta.data$res.0.4 == 3, "DI222_ratio_3p"],
+            s8_meta.data[s8_meta.data$res.0.4 != 3, "DI222_ratio_3p"], alternative="less") 
+
+```
+
+
